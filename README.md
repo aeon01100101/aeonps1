@@ -91,6 +91,9 @@ back and the plumbing gets fixed.
     entry points. Core info (`swanstation_libretro.info`, GPLv3): extensions
     `exe|psexe|cue|bin|img|iso|chd|pbp|ecm|mds|psf|m3u`; BIOS required, accepted
     names `scph5500/5501/5502.bin`, `psxonpsp660.bin`, `ps1_rom.bin`.
+  The download keeps the buildbot name `swanstation_libretro_android.so`;
+  it is bundled in the APK as `libswanstation_libretro_android.so` (lib-prefix
+  required so Android extracts the native library at install time).
   SwanStation is libretro's GPLv3 fork of the DuckStation engine
   (github.com/libretro/swanstation). Upstream DuckStation relicensed to
   CC BY-NC-ND (no derivatives) in Sept 2024, so the GPL fork is the

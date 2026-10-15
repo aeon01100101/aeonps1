@@ -8,7 +8,7 @@ const val ENGINE_DUCKSTATION = "duckstation"
 const val ENGINE_PCSX = "pcsx"
 
 /** Core .so file names as bundled in jniLibs. */
-const val CORE_DUCKSTATION = "swanstation_libretro_android.so"
+const val CORE_DUCKSTATION = "libswanstation_libretro_android.so"
 const val CORE_PCSX = "libpcsx_rearmed_libretro_android.so"
 
 /** BIOS file names the DuckStation-family engine accepts (per its core info). */
