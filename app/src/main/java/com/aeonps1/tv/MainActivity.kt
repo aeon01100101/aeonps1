@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
@@ -21,15 +23,19 @@ class MainActivity : Activity() {
 
     private lateinit var adapter: GameAdapter
     private lateinit var emptyView: TextView
+    private lateinit var grantCard: LinearLayout
     private val games = mutableListOf<GameEntry>()
 
     private val pickGamesCode = 1001
+
+    private fun prefs() = getSharedPreferences("aeonps1", MODE_PRIVATE)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         emptyView = findViewById(R.id.empty_view)
+        grantCard = findViewById(R.id.grant_card)
         val grid = findViewById<RecyclerView>(R.id.game_grid)
         grid.layoutManager = GridLayoutManager(this, 3)
         adapter = GameAdapter(games) { entry ->
@@ -39,12 +45,18 @@ class MainActivity : Activity() {
         }
         grid.adapter = adapter
 
+        findViewById<View>(R.id.btn_browse_files).setOnClickListener {
+            startActivity(Intent(this, FileExplorerActivity::class.java))
+        }
         findViewById<View>(R.id.btn_add_games).setOnClickListener { pickGameFiles() }
         findViewById<View>(R.id.btn_bios).setOnClickListener {
             startActivity(Intent(this, BiosActivity::class.java))
         }
         findViewById<View>(R.id.btn_settings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<Button>(R.id.btn_grant).setOnClickListener {
+            StorageAccess.openAllFilesSettings(this)
         }
 
         maybeRequestStoragePermission()
@@ -65,14 +77,54 @@ class MainActivity : Activity() {
         return dirs
     }
 
+    private fun libraryFolders(): Set<String> =
+        prefs().getStringSet("library_folders", emptySet()) ?: emptySet()
+
+    private fun addedFiles(): Set<String> =
+        prefs().getStringSet("added_files", emptySet()) ?: emptySet()
+
     private fun rescan() {
         games.clear()
-        games.addAll(GameScanner.scan(gamesDirs()))
+        val seen = mutableSetOf<String>()
+        fun addAll(entries: List<GameEntry>) {
+            for (e in entries) {
+                if (seen.add(e.file.absolutePath)) games.add(e)
+            }
+        }
+        // (a) imported / private games
+        addAll(GameScanner.scan(gamesDirs()))
+        // (b) folders picked in the explorer, scanned in place (depth 3)
+        val saved = libraryFolders()
+        for (path in saved) {
+            val f = File(path)
+            if (f.isDirectory && f.canRead()) addAll(GameScanner.scanRecursive(f, 3))
+        }
+        // (c) individually added files
+        for (p in addedFiles()) {
+            val f = File(p)
+            if (f.isFile && GameScanner.isGameExt(f.extension) &&
+                seen.add(f.absolutePath)
+            ) {
+                games.add(GameEntry(GameScanner.prettyTitle(f), f))
+            }
+        }
+        games.sortBy { it.title.lowercase(java.util.Locale.US) }
         adapter.notifyDataSetChanged()
+
         val has = games.isNotEmpty()
         emptyView.visibility = if (has) View.GONE else View.VISIBLE
         findViewById<RecyclerView>(R.id.game_grid).visibility =
             if (has) View.VISIBLE else View.GONE
+
+        // Grant card: saved folders exist but we can't read them without access.
+        val hasAccess = StorageAccess.hasBrowseAccess(this)
+        val someUnreadable = saved.any { p ->
+            val f = File(p)
+            !f.isDirectory || !f.canRead()
+        }
+        grantCard.visibility =
+            if (!hasAccess && saved.isNotEmpty() && someUnreadable) View.VISIBLE
+            else View.GONE
     }
 
     private fun maybeRequestStoragePermission() {

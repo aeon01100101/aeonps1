@@ -10,11 +10,13 @@ import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import java.io.File
+import java.io.InputStream
 import java.util.Locale
 
 class BiosActivity : Activity() {
 
     private val pickBiosCode = 2001
+    private val browseBiosCode = 2002
     private lateinit var statusView: TextView
 
     private fun biosDir() = File(filesDir, "bios").apply { mkdirs() }
@@ -34,6 +36,16 @@ class BiosActivity : Activity() {
             }
             startActivityForResult(i, pickBiosCode)
         }
+        findViewById<View>(R.id.btn_browse_bios).setOnClickListener {
+            val i = Intent(this, FileExplorerActivity::class.java).apply {
+                putExtra(
+                    FileExplorerActivity.EXTRA_MODE,
+                    FileExplorerActivity.MODE_PICK_FILE
+                )
+                putExtra(FileExplorerActivity.EXTRA_EXTENSIONS, arrayOf("bin"))
+            }
+            startActivityForResult(i, browseBiosCode)
+        }
         findViewById<View>(R.id.btn_back).setOnClickListener { finish() }
     }
 
@@ -49,11 +61,8 @@ class BiosActivity : Activity() {
         }
     }
 
-    @Deprecated("no androidx activity-result dep needed")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickBiosCode || resultCode != RESULT_OK || data?.data == null) return
-        val uri: Uri = data.data!!
+    /** Copy [ins] into the bios folder under [name]; report through the same path as SAF. */
+    private fun importBios(name: String, openStream: () -> InputStream?) {
         val dlg = ProgressDialog(this).apply {
             setMessage(getString(R.string.importing))
             setCancelable(false)
@@ -62,9 +71,8 @@ class BiosActivity : Activity() {
         Thread {
             var ok = false
             try {
-                val name = queryName(uri) ?: "scph1001.bin"
                 val safe = File(name).name
-                contentResolver.openInputStream(uri)?.use { ins ->
+                openStream()?.use { ins ->
                     File(biosDir(), safe).outputStream().use { outs -> ins.copyTo(outs) }
                 }
                 ok = true
@@ -76,11 +84,31 @@ class BiosActivity : Activity() {
                 refreshStatus()
                 Toast.makeText(
                     this,
-                    if (ok) getString(R.string.bios_imported) else getString(R.string.bios_import_failed),
+                    if (ok) getString(R.string.bios_imported)
+                    else getString(R.string.bios_import_failed),
                     Toast.LENGTH_LONG
                 ).show()
             }
         }.start()
+    }
+
+    @Deprecated("no androidx activity-result dep needed")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (resultCode != RESULT_OK || data == null) return
+        when (requestCode) {
+            pickBiosCode -> {
+                val uri: Uri = data.data ?: return
+                val name = queryName(uri) ?: "scph1001.bin"
+                importBios(name) { contentResolver.openInputStream(uri) }
+            }
+            browseBiosCode -> {
+                val path = data.getStringExtra(FileExplorerActivity.EXTRA_PICKED_PATH)
+                    ?: return
+                val src = File(path)
+                importBios(src.name) { src.inputStream() }
+            }
+        }
     }
 
     private fun queryName(uri: Uri): String? {

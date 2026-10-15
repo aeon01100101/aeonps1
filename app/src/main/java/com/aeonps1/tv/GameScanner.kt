@@ -11,14 +11,39 @@ private val GAME_EXTS = setOf("cue", "bin", "iso", "pbp", "chd")
 private val PREFERRED_EXTS = setOf("cue", "chd", "pbp", "iso", "m3u")
 
 object GameScanner {
+    fun isGameExt(ext: String): Boolean = ext.lowercase(Locale.US) in GAME_EXTS
+
     fun scan(dirs: List<File>): List<GameEntry> {
         val files = mutableListOf<File>()
         for (dir in dirs) {
             if (!dir.isDirectory) continue
             dir.listFiles()?.forEach { f ->
-                if (f.isFile && f.extension.lowercase(Locale.US) in GAME_EXTS) files.add(f)
+                if (f.isFile && isGameExt(f.extension)) files.add(f)
             }
         }
+        return finish(files)
+    }
+
+    /** Scan one directory recursively (bounded depth) — used for explorer library folders. */
+    fun scanRecursive(dir: File, maxDepth: Int = 3): List<GameEntry> {
+        val files = mutableListOf<File>()
+        fun walk(f: File, depth: Int) {
+            if (depth > maxDepth || !f.isDirectory) return
+            val kids = try {
+                f.listFiles()
+            } catch (e: Exception) {
+                null
+            } ?: return
+            for (k in kids) {
+                if (k.isFile && isGameExt(k.extension)) files.add(k)
+                else if (k.isDirectory) walk(k, depth + 1)
+            }
+        }
+        walk(dir, 0)
+        return finish(files)
+    }
+
+    private fun finish(files: List<File>): List<GameEntry> {
         // Drop a .bin when a preferred sibling (same base name) exists.
         val preferredBases = files
             .filter { it.extension.lowercase(Locale.US) in PREFERRED_EXTS }
@@ -33,7 +58,7 @@ object GameScanner {
             .sortedBy { it.title.lowercase(Locale.US) }
     }
 
-    private fun prettyTitle(f: File): String {
+    fun prettyTitle(f: File): String {
         var t = f.nameWithoutExtension
             .replace('_', ' ')
             .replace('.', ' ')

@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Read the public AeonPS1/games folder on external storage (Fire OS 7 / API <= 32).
-         The main flow (Add Games / Import BIOS) uses the system file picker and needs no permission. -->
+    <!-- Read the public AeonPS1/games folder on external storage (API <= 32). -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- All-files access: what makes the built-in explorer browse shared
+         storage and USB sticks on API 30+ (Fire OS 8+). -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -43,6 +45,11 @@
 
         <activity
             android:name=".BiosActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+
+        <activity
+            android:name=".FileExplorerActivity"
             android:exported="false"
             android:screenOrientation="landscape" />
     </application>

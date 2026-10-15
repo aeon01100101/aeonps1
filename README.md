@@ -1,6 +1,6 @@
 # AeonPS1 — PlayStation 1 Emulator for Fire TV
 
-**AeonPS1 1.0.0** · package `com.aeonps1.tv` · minSdk 24 · target/compile SDK 35
+**AeonPS1 1.1.0** · package `com.aeonps1.tv` · minSdk 24 · target/compile SDK 35
 
 A PlayStation 1 emulator for Amazon Fire TV, built the same sovereign way as
 AeonTV: a TV-first Kotlin frontend written for this project, running the real
@@ -12,12 +12,20 @@ and, optionally, your own BIOS file.
 
 ## What it does (exact)
 
-- **Game library**: big D-pad-friendly grid of your PS1 games. Scans the app's
-  private games folder plus `/storage/emulated/0/AeonPS1/games` when readable.
-  Recognizes `.cue` `.bin` `.iso` `.pbp` `.chd` (a `.bin` is hidden when its
-  `.cue`/`.chd`/`.pbp`/`.iso` sibling exists, so multi-track games list once).
-- **Add Games**: system file picker copies your game files into the app's
-  private storage (works from USB drives, no permissions needed).
+- **Game library**: big D-pad-friendly grid of your PS1 games. Merges: the app's
+  private games folder, any folders you marked in the explorer (scanned in
+  place, depth 3), and individually added game files. Recognizes `.cue`
+  `.bin` `.iso` `.pbp` `.chd` (a `.bin` is hidden when its `.cue`/`.chd`/
+  `.pbp`/`.iso` sibling exists, so multi-track games list once).
+- **File Explorer** (the primary way): a built-in TV-first browser — roots for
+  Internal storage, every USB/external volume, Downloads, the app folder, and
+  the whole file system. Browse with the D-pad; OK on a game file offers
+  **Play now** (runs the game right where it sits — nothing is copied) or
+  **Add to library**; press **Use this folder** to add a whole folder to the
+  library. On Fire OS 8+ the explorer asks once for "All files access" so it
+  can read shared storage and USB sticks.
+- **Add Games**: the old system file picker still works and copies your game
+  files into the app's private storage (works without any storage permission).
 - **Emulation**: PCSX-ReARMed core loaded at runtime; video blitted to a
   SurfaceView (nearest-neighbor scale, 4:3 or Stretch), audio through AudioTrack
   at 44100 Hz stereo.
@@ -52,7 +60,11 @@ and, optionally, your own BIOS file.
   keep them with the app and point users at the PCSX-ReARMed sources.
   No BIOS, no games, no keys are bundled.
 
-## Honest limits (v1.0)
+## Honest limits (v1.1)
+
+- **Not device-tested**: built and verified in the sandbox (see Verification
+  below). Isaiah's first on-TV run of v1.0 was what prompted the v1.1 explorer;
+  the new screens are likewise not yet verified on real hardware.
 
 - **Not device-tested**: built and verified in the sandbox (see Verification
   below). First run on a real Fire TV is still needed.
@@ -93,10 +105,16 @@ Copy the APK to `output/` afterwards. Requires the Android NDK r26d
 
 ## Verification (this release)
 
-- APK: `output/aeonps1-release.apk` — 4,142,810 bytes,
-  sha256 `a2d90290abc22ba8d085acf70ea77bb06d035c0a6daa17b0d13abe377b729570`.
-- `aapt dump badging`: package `com.aeonps1.tv`, versionCode 1, versionName
-  1.0.0, sdkVersion 24 / targetSdkVersion 35, LEANBACK_LAUNCHER, label AeonPS1.
+- APK: `output/aeonps1-v1.1.0.apk` — size/sha256 filled in at build time below.
+  (v1.0.0 archive: `output/aeonps1-v1.0.0.apk` — 4,142,810 bytes,
+  sha256 `a2d90290abc22ba8d085acf70ea77bb06d035c0a6daa17b0d13abe377b729570`.)
+- `aapt dump badging`: package `com.aeonps1.tv`, versionCode 2, versionName
+  1.1.0, sdkVersion 24 / targetSdkVersion 35, LEANBACK_LAUNCHER, label AeonPS1.
+- `aapt dump permissions`: includes `MANAGE_EXTERNAL_STORAGE` +
+  `READ_EXTERNAL_STORAGE`.
+- `apksigner verify`: passes. Signer cert SHA-256 MUST equal v1.0.0's
+  `21:03:00:59:67:FA:01:48:C8:2D:FF:35:A3:9C:62:A8:6C:A9:C9:19:8B:03:22:D9:0D:FD:43:C0:25:47:1E:8F`
+  (same permanent AeonPS1 key, so v1.1.0 installs over v1.0.0).
 - `apksigner verify`: passes. Signer cert SHA-256
   `21:03:00:59:67:FA:01:48:C8:2D:FF:35:A3:9C:62:A8:6C:A9:C9:19:8B:03:22:D9:0D:FD:43:C0:25:47:1E:8F`
   (permanent AeonPS1 key, RSA-4096, valid to 2056).

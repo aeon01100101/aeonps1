@@ -4,7 +4,7 @@
 
 1. On your Fire TV, install a file manager that can sideload APKs (e.g. **Downloader**
    by AFTVnews) and allow "Install unknown apps" for it when asked.
-2. Copy `aeonps1-release.apk` to a USB stick (or send it to the TV with
+2. Copy `aeonps1-v1.1.0.apk` to a USB stick (or send it to the TV with
    "Send Files to TV" / adb).
 3. Open the APK on the TV and install. It appears as **AeonPS1** in your apps.
 
@@ -15,15 +15,19 @@
 ## 2. Add your games
 
 You must own the games you play. AeonPS1 ships with no games and no BIOS.
+Games stay on your USB stick or internal storage — nothing is copied.
 
-1. Open AeonPS1 → press **Add Games**.
-2. Pick your PS1 game files from USB storage or anywhere the picker can see:
-   `.cue` `.bin` `.iso` `.pbp` `.chd`.
-   - Tip: keep the `.cue` next to its `.bin` so CD audio works.
-3. Wait for the copy to finish. Your games appear in the library.
+1. Open AeonPS1 → press **Browse Files**.
+2. First time: press **Turn on storage access** when asked, so the explorer
+   can read your USB stick and shared storage.
+3. Pick a place: Internal storage, your USB / external storage, Downloads.
+4. Find a folder with your PS1 games (`.cue` `.bin` `.iso` `.pbp` `.chd` —
+   keep the `.cue` next to its `.bin` so CD audio works) and press
+   **Use this folder** — its games appear in the library every time you open
+   the app. Or open one game file and pick **Play now** to play it directly.
 
-(Advanced: you can also drop files into `/storage/emulated/0/AeonPS1/games`
-with adb or a file manager; the library scans that folder on Fire OS 7.)
+(The old **Add Games** picker still works too: it copies game files into the
+app's private storage, no permissions needed.)
 
 ## 3. Optional: add a real BIOS
 
@@ -31,7 +35,8 @@ Most games run without one (built-in HLE). If a game glitches, a real BIOS
 from a PlayStation you own can help:
 
 1. Open AeonPS1 → **BIOS**. The screen shows the folder and what's detected.
-2. Press **Import BIOS file** and pick your `scph1001.bin` (or similar).
+2. Press **Import BIOS file** and pick your `scph1001.bin` (or similar) —
+   or **Browse for BIOS file** to find it with the built-in explorer.
 
 ## 4. Play
 

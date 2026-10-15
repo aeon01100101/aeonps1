@@ -49,6 +49,12 @@
             android:text="@string/import_bios" />
 
         <Button
+            android:id="@+id/btn_browse_bios"
+            style="@style/AeonButton"
+            android:layout_marginTop="16dp"
+            android:text="@string/browse_bios" />
+
+        <Button
             android:id="@+id/btn_back"
             style="@style/AeonButton"
             android:layout_marginTop="16dp"
