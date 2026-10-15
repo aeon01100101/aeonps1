@@ -1,0 +1,6 @@
+.gradle/
+build/
+app/build/
+*.iml
+.DS_Store
+# signing material lives outside the repo in ../signing/ (never commit keys)

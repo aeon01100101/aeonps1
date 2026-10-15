@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/bios_title"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="@color/accent" />
+
+        <TextView
+            android:id="@+id/bios_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="22sp"
+            android:textColor="@color/text" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/bios_explain"
+            android:textSize="20sp"
+            android:textColor="@color/text_dim" />
+
+        <TextView
+            android:id="@+id/bios_path"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="18sp"
+            android:textColor="@color/accent" />
+
+        <Button
+            android:id="@+id/btn_import_bios"
+            style="@style/AeonButton"
+            android:layout_marginTop="24dp"
+            android:text="@string/import_bios" />
+
+        <Button
+            android:id="@+id/btn_back"
+            style="@style/AeonButton"
+            android:layout_marginTop="16dp"
+            android:text="@string/back" />
+    </LinearLayout>
+</ScrollView>

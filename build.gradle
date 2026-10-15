@@ -1,0 +1,14 @@
+// NOTE: plugins are applied the legacy buildscript way because the
+// Gradle Plugin Portal does not currently serve the com.android.application
+// marker through this sandbox's egress proxy. google() has AGP, mavenCentral()
+// has the Kotlin Gradle plugin.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.5.2")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
+    }
+}

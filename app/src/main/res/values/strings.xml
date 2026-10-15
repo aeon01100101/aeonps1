@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AeonPS1</string>
+    <string name="library_subtitle">Your PlayStation games</string>
+    <string name="add_games">Add Games</string>
+    <string name="bios">BIOS</string>
+    <string name="settings">Settings</string>
+    <string name="no_games">No games yet.\n\nPress "Add Games" and pick your PS1 game files\n(.cue  .bin  .iso  .pbp  .chd).\nYou must own the games you play.</string>
+    <string name="importing">Copying game files… this can take a while for big games.</string>
+    <string name="import_done">Games added.</string>
+    <string name="import_failed">Could not add some files.</string>
+    <string name="screen_mode">Screen</string>
+    <string name="screen_43">4:3</string>
+    <string name="screen_stretch">Stretch</string>
+    <string name="show_fps">Show FPS</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
+    <string name="bios_title">PlayStation BIOS</string>
+    <string name="bios_explain">AeonPS1 can play most games without a BIOS file, using its built-in replacement (HLE). Some games run better with a real BIOS from a PlayStation you own.\n\nIf you have one, put a file like scph1001.bin in this folder:</string>
+    <string name="import_bios">Import BIOS file</string>
+    <string name="bios_found">BIOS found: %1$s</string>
+    <string name="bios_none">No BIOS found — using built-in HLE (most games work).</string>
+    <string name="bios_imported">BIOS imported.</string>
+    <string name="bios_import_failed">Could not import that file.</string>
+    <string name="back">Back</string>
+    <string name="menu_save">Save State</string>
+    <string name="menu_load">Load State</string>
+    <string name="menu_reset">Reset Game</string>
+    <string name="menu_quit">Quit to Library</string>
+    <string name="menu_title">Game Menu</string>
+    <string name="saved">Game saved.</string>
+    <string name="save_failed">Save failed.</string>
+    <string name="loaded">Save loaded.</string>
+    <string name="load_failed">No save found, or it failed to load.</string>
+    <string name="load_error">Could not start the game.</string>
+    <string name="version_line">AeonPS1 1.0.0 · PCSX-ReARMed core</string>
+</resources>
