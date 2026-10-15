@@ -35,7 +35,27 @@
     <string name="loaded">Save loaded.</string>
     <string name="load_failed">No save found, or it failed to load.</string>
     <string name="load_error">Could not start the game.</string>
-    <string name="version_line">AeonPS1 1.2.0 · PCSX-ReARMed core</string>
+    <string name="load_step_core">The emulator core would not start.</string>
+    <string name="load_step_game">The game file would not load.</string>
+    <string name="game_wont_start">This game wouldn\'t start</string>
+    <string name="game_wont_start_body">%1$s\n\nFile: %2$s\nFolder: %3$s\nSize: %4$s\n\nThe file may be incomplete, renamed, or a format the core can\'t read. If this keeps happening, tell the AeonPS1 maker exactly what these lines say.</string>
+    <string name="version_line">AeonPS1 1.2.1 · PCSX-ReARMed core</string>
+    <string name="loading_games">Loading your games…</string>
+    <string name="storage_rescue">Storage &amp; rescue</string>
+    <string name="space_warn_text">Your Fire TV is almost full (%1$s free). Apps can stop opening when storage runs out.</string>
+
+    <!-- Rescue screen -->
+    <string name="rescue_title">Storage &amp; rescue</string>
+    <string name="rescue_explain">If the app ever refuses to open, this screen gets it back. Nothing here deletes your games from USB or storage — only extracted copies inside the app can be removed, and only by you.</string>
+    <string name="rescue_free">Free space on this TV: %1$s</string>
+    <string name="rescue_extracted_use">Extracted games inside the app use: %1$s</string>
+    <string name="rescue_folders_files">Library folders watched: %1$d · Single games added: %2$d</string>
+    <string name="rescue_try">Try opening normally</string>
+    <string name="rescue_forget">Forget library folders and added files</string>
+    <string name="rescue_forget_confirm">Forget your library folders and added games?\n\nThis only clears the list — NO game files are deleted anywhere. You can re-add folders in Browse Files any time.</string>
+    <string name="rescue_delete_title">Delete an extracted game</string>
+    <string name="rescue_delete_confirm">Delete \'%1$s\' (%2$s)?\n\nThis removes the extracted game files. Your original archive stays where it was.</string>
+    <string name="rescue_no_extracted">No extracted games found.</string>
 
     <!-- Archive extraction -->
     <string name="remove_from_library">Remove from library folders</string>
@@ -45,7 +65,7 @@
     <string name="extract_cancelled">Extraction cancelled.</string>
     <string name="extract_failed">Couldn\'t extract that archive:\n%1$s</string>
     <string name="extract_done">Extracted \'%1$s\' — %2$d game(s) added to your library.</string>
-    <string name="extract_no_space">Not enough free space to unpack that.\nNeeded: %1$s · Available: %2$s</string>
+    <string name="extract_no_space">Not enough free space to unpack that.\nNeeded: %1$s · Available: %2$s\n\nAeonPS1 keeps at least 250 MB free so your Fire TV keeps working — the app can refuse to open on a full stick. Delete an extracted game first (Settings → Storage &amp; rescue).</string>
     <string name="already_extracted">\'%1$s\' looks already extracted.</string>
     <string name="use_existing">Use that folder</string>
     <string name="extract_again">Extract again</string>

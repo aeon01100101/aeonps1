@@ -131,3 +131,25 @@ Copy the APK to `output/` afterwards. Requires the Android NDK r26d
   `Java_com_aeonps1_tv_EmulatorBridge_*` JNI symbols; the core exports all
   `retro_*` entry points.
 - NOT device-tested (no Fire TV / ARM device in this sandbox).
+
+## If the app ever won't open (v1.2.1+)
+
+A full Fire TV can refuse to open apps at all — and extracted games live on
+the TV's internal storage, so that is the usual suspect. v1.2.1:
+
+- **Rescue mode**: if the app dies twice during startup (or storage is
+  critically low) it opens a "Storage & rescue" screen instead: free space,
+  what the extracted games use, how many library folders are watched, plus
+  big buttons to *try opening normally* (skips the folder scan for one run),
+  *forget the library list* (clears the list only — deletes no files), and
+  *delete an extracted game* (frees space; the original archive is untouched).
+  It's also reachable any time from Settings → "Storage & rescue".
+- **Startup is crash-proof**: every preferences read is guarded (a corrupt
+  key resets itself instead of killing launch), and the library scan runs on
+  a background thread with per-folder error isolation and a 20,000-file
+  visit cap.
+- **Extraction keeps a reserve**: unpacking only starts if at least
+  max(250 MB, 5% of the disk) would still be free afterwards; below 300 MB
+  free the library shows a one-time warning card.
+- A game that won't start now leaves a dialog on screen with the file name,
+  full path and size instead of a 2-second toast.

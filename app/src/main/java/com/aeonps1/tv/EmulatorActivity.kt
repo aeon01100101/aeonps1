@@ -96,11 +96,11 @@ class EmulatorActivity : Activity() {
                 "/libpcsx_rearmed_libretro_android.so"
             val biosDir = File(filesDir, "bios").absolutePath
             if (!EmulatorBridge.nativeInit(corePath, biosDir, savesDir.absolutePath)) {
-                fail("Could not start the emulator core."); return@Thread
+                fail(getString(R.string.load_step_core)); return@Thread
             }
             EmulatorBridge.nativeSetScreenMode(prefs().getInt("screen_mode", 0))
             if (!EmulatorBridge.nativeLoadGame(gamePath)) {
-                fail(getString(R.string.load_error)); return@Thread
+                fail(getString(R.string.load_step_game)); return@Thread
             }
             val targetFps = EmulatorBridge.nativeGetTargetFps().coerceIn(1f, 120f)
             val frameNs = (1_000_000_000L / targetFps).toLong()
@@ -158,11 +158,41 @@ class EmulatorActivity : Activity() {
         }, "AeonPS1-Audio").apply { start() }
     }
 
-    private fun fail(msg: String) {
+    private fun fail(step: String) {
         running = false
+        // Stay on screen with the real details instead of a 2-second toast:
+        // the next refusal diagnoses itself.
+        val file = try {
+            File(gamePath)
+        } catch (e: Exception) {
+            null
+        }
+        val size = if (file != null && file.isFile) {
+            try {
+                RescuePrefs.humanSize(file.length())
+            } catch (e: Exception) {
+                "unknown"
+            }
+        } else "unknown"
         runOnUiThread {
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-            finish()
+            try {
+                AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.game_wont_start))
+                    .setMessage(
+                        getString(
+                            R.string.game_wont_start_body,
+                            step,
+                            file?.name ?: gamePath,
+                            gamePath,
+                            size
+                        )
+                    )
+                    .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+                    .setCancelable(false)
+                    .show()
+            } catch (e: Exception) {
+                finish()
+            }
         }
     }
 

@@ -24,17 +24,24 @@ object GameScanner {
         return finish(files)
     }
 
-    /** Scan one directory recursively (bounded depth) — used for explorer library folders. */
-    fun scanRecursive(dir: File, maxDepth: Int = 3): List<GameEntry> {
+    /**
+     * Scan one directory recursively — used for explorer library folders.
+     * Depth-bounded AND visit-bounded: a pathological tree (symlink loops,
+     * giant dumps) can never hang app startup; the walk just stops.
+     */
+    fun scanRecursive(dir: File, maxDepth: Int = 3, maxFiles: Int = 20000): List<GameEntry> {
         val files = mutableListOf<File>()
+        var visits = 0
         fun walk(f: File, depth: Int) {
-            if (depth > maxDepth || !f.isDirectory) return
+            if (depth > maxDepth || !f.isDirectory || visits >= maxFiles) return
             val kids = try {
                 f.listFiles()
             } catch (e: Exception) {
                 null
             } ?: return
             for (k in kids) {
+                if (visits >= maxFiles) return
+                visits++
                 if (k.isFile && isGameExt(k.extension)) files.add(k)
                 else if (k.isDirectory) walk(k, depth + 1)
             }

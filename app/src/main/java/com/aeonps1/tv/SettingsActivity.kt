@@ -37,5 +37,8 @@ class SettingsActivity : Activity() {
             refresh()
         }
         findViewById<View>(R.id.btn_back).setOnClickListener { finish() }
+        findViewById<View>(R.id.btn_storage).setOnClickListener {
+            startActivity(android.content.Intent(this, RescueActivity::class.java))
+        }
     }
 }

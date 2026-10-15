@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -18,53 +19,160 @@ import android.widget.Toast
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.io.File
+import java.util.Locale
+import java.util.concurrent.Executors
 
+/**
+ * The library. v1.2.1 hardening:
+ *  - every SharedPreferences read goes through SafePrefs (a corrupt key can
+ *    never kill launch again);
+ *  - the library scan runs on a background thread with per-source try/catch,
+ *    so one bad folder or file is skipped, never fatal;
+ *  - the app tracks whether the previous launch died during startup and
+ *    opens the rescue screen after repeated failures (or when storage is
+ *    critically low, checked directly since flag writes may not survive a
+ *    full disk).
+ */
 class MainActivity : Activity() {
+
+    companion object {
+        /** Set by RescueActivity: skip the rescue gate AND the folder scan this run. */
+        const val EXTRA_FROM_RESCUE = "from_rescue"
+        const val EXTRA_SKIP_EXTERNAL_SCAN = "skip_external_scan"
+    }
 
     private lateinit var adapter: GameAdapter
     private lateinit var emptyView: TextView
     private lateinit var grantCard: LinearLayout
+    private lateinit var spaceCard: LinearLayout
+    private lateinit var spaceText: TextView
+    private lateinit var grid: RecyclerView
     private val games = mutableListOf<GameEntry>()
 
     private val pickGamesCode = 1001
+    private val scanExecutor = Executors.newSingleThreadExecutor()
+    private var scanToken = 0
+    private var firstScanDone = false
 
     private fun prefs() = getSharedPreferences("aeonps1", MODE_PRIVATE)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        try {
+            // The rescue gate runs BEFORE anything else: on a critically full
+            // disk even the prefs flag writes below may not survive, so free
+            // space is checked directly here.
+            val fromRescue = intent.getBooleanExtra(EXTRA_FROM_RESCUE, false)
+            if (!fromRescue) {
+                val free = try {
+                    filesDir.usableSpace
+                } catch (e: Exception) {
+                    Long.MAX_VALUE
+                }
+                val inProgress = SafePrefs.getBoolean(
+                    prefs(), RescuePrefs.KEY_IN_PROGRESS, false
+                )
+                val attempts = SafePrefs.getInt(
+                    prefs(), RescuePrefs.KEY_ATTEMPTS, 0
+                )
+                if (RescuePrefs.shouldEnterRescue(
+                        inProgress, attempts, free,
+                        RescuePrefs.LOW_SPACE_RESCUE_BYTES
+                    )
+                ) {
+                    openRescue()
+                    return
+                }
+                markLaunchStarted(attempts)
+            }
 
-        emptyView = findViewById(R.id.empty_view)
-        grantCard = findViewById(R.id.grant_card)
-        val grid = findViewById<RecyclerView>(R.id.game_grid)
-        grid.layoutManager = GridLayoutManager(this, 3)
-        adapter = GameAdapter(games) { entry ->
-            val i = Intent(this, EmulatorActivity::class.java)
-            i.putExtra(EmulatorActivity.EXTRA_PATH, entry.file.absolutePath)
-            startActivity(i)
-        }
-        grid.adapter = adapter
+            setContentView(R.layout.activity_main)
 
-        findViewById<View>(R.id.btn_browse_files).setOnClickListener {
-            startActivity(Intent(this, FileExplorerActivity::class.java))
-        }
-        findViewById<View>(R.id.btn_add_games).setOnClickListener { pickGameFiles() }
-        findViewById<View>(R.id.btn_bios).setOnClickListener {
-            startActivity(Intent(this, BiosActivity::class.java))
-        }
-        findViewById<View>(R.id.btn_settings).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
-        findViewById<Button>(R.id.btn_grant).setOnClickListener {
-            StorageAccess.openAllFilesSettings(this)
-        }
+            emptyView = findViewById(R.id.empty_view)
+            grantCard = findViewById(R.id.grant_card)
+            spaceCard = findViewById(R.id.space_card)
+            spaceText = findViewById(R.id.space_text)
+            grid = findViewById(R.id.game_grid)
+            grid.layoutManager = GridLayoutManager(this, 3)
+            adapter = GameAdapter(games) { entry ->
+                val i = Intent(this, EmulatorActivity::class.java)
+                i.putExtra(EmulatorActivity.EXTRA_PATH, entry.file.absolutePath)
+                startActivity(i)
+            }
+            grid.adapter = adapter
 
-        maybeRequestStoragePermission()
+            findViewById<View>(R.id.btn_browse_files).setOnClickListener {
+                startActivity(Intent(this, FileExplorerActivity::class.java))
+            }
+            findViewById<View>(R.id.btn_add_games).setOnClickListener { pickGameFiles() }
+            findViewById<View>(R.id.btn_bios).setOnClickListener {
+                startActivity(Intent(this, BiosActivity::class.java))
+            }
+            findViewById<View>(R.id.btn_settings).setOnClickListener {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
+            findViewById<Button>(R.id.btn_grant).setOnClickListener {
+                StorageAccess.openAllFilesSettings(this)
+            }
+            findViewById<Button>(R.id.btn_space_rescue).setOnClickListener {
+                openRescue()
+            }
+
+            maybeRequestStoragePermission()
+        } catch (t: Throwable) {
+            // Last resort: a broken startup lands on the rescue screen,
+            // never on a dead app icon tap.
+            Log.e("AeonPS1", "MainActivity init failed", t)
+            try {
+                openRescue()
+            } catch (t2: Throwable) {
+                finish()
+            }
+        }
+    }
+
+    private fun openRescue() {
+        try {
+            startActivity(Intent(this, RescueActivity::class.java))
+        } catch (e: Exception) {
+            Log.e("AeonPS1", "could not open rescue", e)
+        }
+        finish()
+    }
+
+    private fun markLaunchStarted(attempts: Int) {
+        try {
+            prefs().edit()
+                .putBoolean(RescuePrefs.KEY_IN_PROGRESS, true)
+                .putInt(RescuePrefs.KEY_ATTEMPTS, attempts + 1)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("AeonPS1", "could not write launch flags", e)
+        }
+    }
+
+    /** Called once the first background scan has rendered: startup survived. */
+    private fun markLaunchSucceeded() {
+        try {
+            prefs().edit()
+                .putBoolean(RescuePrefs.KEY_IN_PROGRESS, false)
+                .putInt(RescuePrefs.KEY_ATTEMPTS, 0)
+                .apply()
+        } catch (e: Exception) {
+            Log.w("AeonPS1", "could not clear launch flags", e)
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        rescan()
+        // If the gate above bailed to rescue, there is no UI to scan into.
+        if (!::grid.isInitialized) return
+        rescanAsync()
+    }
+
+    override fun onDestroy() {
+        scanToken++ // invalidate any scan still running
+        super.onDestroy()
     }
 
     private fun gamesDirs(): List<File> {
@@ -78,53 +186,153 @@ class MainActivity : Activity() {
     }
 
     private fun libraryFolders(): Set<String> =
-        prefs().getStringSet("library_folders", emptySet()) ?: emptySet()
+        SafePrefs.getStringSet(prefs(), RescuePrefs.KEY_LIBRARY_FOLDERS)
 
     private fun addedFiles(): Set<String> =
-        prefs().getStringSet("added_files", emptySet()) ?: emptySet()
+        SafePrefs.getStringSet(prefs(), RescuePrefs.KEY_ADDED_FILES)
 
-    private fun rescan() {
-        games.clear()
-        val seen = mutableSetOf<String>()
-        fun addAll(entries: List<GameEntry>) {
-            for (e in entries) {
-                if (seen.add(e.file.absolutePath)) games.add(e)
+    /** The whole library scan happens off the UI thread, one source at a
+     *  time, each inside its own try/catch. One bad folder or file is
+     *  skipped — it can never take the app down. */
+    private fun rescanAsync() {
+        val token = ++scanToken
+        val skipExternal = intent.getBooleanExtra(EXTRA_SKIP_EXTERNAL_SCAN, false)
+
+        runOnUiThread {
+            emptyView.text = getString(R.string.loading_games)
+            emptyView.visibility = View.VISIBLE
+            grid.visibility = View.GONE
+            grantCard.visibility = View.GONE
+        }
+
+        scanExecutor.execute {
+            val found = mutableListOf<GameEntry>()
+            val seen = mutableSetOf<String>()
+            fun addAll(entries: List<GameEntry>) {
+                for (e in entries) {
+                    try {
+                        if (seen.add(e.file.absolutePath)) found.add(e)
+                    } catch (e2: Exception) {
+                        // skip one bad entry
+                    }
+                }
+            }
+
+            // (a) imported / private games
+            try {
+                addAll(GameScanner.scan(gamesDirs()))
+            } catch (e: Exception) {
+                Log.w("AeonPS1", "private games scan failed", e)
+            }
+
+            // (b) folders picked in the explorer, scanned in place
+            if (!skipExternal) {
+                val saved: Set<String> = try {
+                    libraryFolders()
+                } catch (e: Exception) {
+                    emptySet()
+                }
+                for (path in saved) {
+                    try {
+                        val f = File(path)
+                        if (f.isDirectory && f.canRead()) {
+                            addAll(GameScanner.scanRecursive(f, 3))
+                        }
+                    } catch (e: Exception) {
+                        Log.w("AeonPS1", "folder scan failed: $path", e)
+                    }
+                }
+            }
+
+            // (c) individually added files
+            try {
+                for (p in addedFiles()) {
+                    try {
+                        val f = File(p)
+                        if (f.isFile && GameScanner.isGameExt(f.extension) &&
+                            seen.add(f.absolutePath)
+                        ) {
+                            found.add(GameEntry(GameScanner.prettyTitle(f), f))
+                        }
+                    } catch (e: Exception) {
+                        Log.w("AeonPS1", "added-file check failed: $p", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("AeonPS1", "added-files scan failed", e)
+            }
+
+            try {
+                found.sortBy { it.title.lowercase(Locale.US) }
+            } catch (e: Exception) {
+                // leave unsorted
+            }
+
+            val finalList = found
+            runOnUiThread {
+                if (token != scanToken) return@runOnUiThread // stale scan
+                games.clear()
+                games.addAll(finalList)
+                adapter.notifyDataSetChanged()
+
+                val has = games.isNotEmpty()
+                emptyView.visibility = if (has) View.GONE else View.VISIBLE
+                if (!has) emptyView.text = getString(R.string.no_games)
+                grid.visibility = if (has) View.VISIBLE else View.GONE
+
+                updateCards()
+                if (!firstScanDone) {
+                    firstScanDone = true
+                    markLaunchSucceeded()
+                }
             }
         }
-        // (a) imported / private games
-        addAll(GameScanner.scan(gamesDirs()))
-        // (b) folders picked in the explorer, scanned in place (depth 3)
-        val saved = libraryFolders()
-        for (path in saved) {
-            val f = File(path)
-            if (f.isDirectory && f.canRead()) addAll(GameScanner.scanRecursive(f, 3))
-        }
-        // (c) individually added files
-        for (p in addedFiles()) {
-            val f = File(p)
-            if (f.isFile && GameScanner.isGameExt(f.extension) &&
-                seen.add(f.absolutePath)
-            ) {
-                games.add(GameEntry(GameScanner.prettyTitle(f), f))
-            }
-        }
-        games.sortBy { it.title.lowercase(java.util.Locale.US) }
-        adapter.notifyDataSetChanged()
+    }
 
-        val has = games.isNotEmpty()
-        emptyView.visibility = if (has) View.GONE else View.VISIBLE
-        findViewById<RecyclerView>(R.id.game_grid).visibility =
-            if (has) View.VISIBLE else View.GONE
-
+    private fun updateCards() {
         // Grant card: saved folders exist but we can't read them without access.
-        val hasAccess = StorageAccess.hasBrowseAccess(this)
-        val someUnreadable = saved.any { p ->
-            val f = File(p)
-            !f.isDirectory || !f.canRead()
+        val hasAccess: Boolean = try {
+            StorageAccess.hasBrowseAccess(this)
+        } catch (e: Exception) {
+            false
+        }
+        val saved: Set<String> = try {
+            libraryFolders()
+        } catch (e: Exception) {
+            emptySet()
+        }
+        val someUnreadable = try {
+            saved.any { p ->
+                val f = File(p)
+                !f.isDirectory || !f.canRead()
+            }
+        } catch (e: Exception) {
+            false
         }
         grantCard.visibility =
             if (!hasAccess && saved.isNotEmpty() && someUnreadable) View.VISIBLE
             else View.GONE
+
+        // One-time low-space warning: a nearly-full stick stops apps opening.
+        val free: Long = try {
+            filesDir.usableSpace
+        } catch (e: Exception) {
+            Long.MAX_VALUE
+        }
+        val warned = SafePrefs.getBoolean(prefs(), RescuePrefs.KEY_SPACE_WARNED, false)
+        if (free < RescuePrefs.LOW_SPACE_WARN_BYTES && !warned) {
+            spaceText.text = getString(
+                R.string.space_warn_text, RescuePrefs.humanSize(free)
+            )
+            spaceCard.visibility = View.VISIBLE
+            try {
+                prefs().edit().putBoolean(RescuePrefs.KEY_SPACE_WARNED, true).apply()
+            } catch (e: Exception) {
+                // non-fatal
+            }
+        } else {
+            spaceCard.visibility = View.GONE
+        }
     }
 
     private fun maybeRequestStoragePermission() {
@@ -196,7 +404,7 @@ class MainActivity : Activity() {
                     // the inbox copy is deleted after a successful extraction.
                     extractImportedArchives(archives, 0, copyFailed)
                 } else {
-                    rescan()
+                    rescanAsync()
                     Toast.makeText(
                         this,
                         if (copyFailed == 0) getString(R.string.import_done)
@@ -213,7 +421,7 @@ class MainActivity : Activity() {
         archives: List<File>, index: Int, copyFailed: Int
     ) {
         if (index >= archives.size) {
-            rescan()
+            rescanAsync()
             if (copyFailed > 0) {
                 Toast.makeText(this, getString(R.string.import_failed), Toast.LENGTH_LONG).show()
             }

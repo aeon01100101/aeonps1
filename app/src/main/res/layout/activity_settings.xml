@@ -28,6 +28,12 @@
             style="@style/AeonButton"
             android:layout_marginTop="16dp" />
 
+        <Button
+            android:id="@+id/btn_storage"
+            style="@style/AeonButton"
+            android:layout_marginTop="16dp"
+            android:text="@string/storage_rescue" />
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

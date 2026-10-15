@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="32dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/rescue_title"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="@color/accent" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/rescue_explain"
+            android:textSize="18sp"
+            android:textColor="@color/text_dim" />
+
+        <TextView
+            android:id="@+id/rescue_info_free"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:textSize="22sp"
+            android:textColor="@color/text" />
+
+        <TextView
+            android:id="@+id/rescue_info_extracted"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="22sp"
+            android:textColor="@color/text" />
+
+        <TextView
+            android:id="@+id/rescue_info_folders"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="22sp"
+            android:textColor="@color/text" />
+
+        <Button
+            android:id="@+id/btn_rescue_try"
+            style="@style/AeonButton"
+            android:layout_marginTop="32dp"
+            android:textSize="22sp"
+            android:text="@string/rescue_try" />
+
+        <Button
+            android:id="@+id/btn_rescue_forget"
+            style="@style/AeonButton"
+            android:layout_marginTop="16dp"
+            android:textSize="22sp"
+            android:text="@string/rescue_forget" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/rescue_delete_title"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="@color/accent" />
+
+        <LinearLayout
+            android:id="@+id/rescue_delete_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/btn_rescue_back"
+            style="@style/AeonButton"
+            android:layout_marginTop="32dp"
+            android:text="@string/back" />
+    </LinearLayout>
+</ScrollView>

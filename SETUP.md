@@ -85,3 +85,24 @@ from a PlayStation you own can help:
 - **No sound / stutter**: weaker Fire TV sticks can struggle; close other apps.
 - **Game not listed**: make sure the extension is one of the supported ones and
   the copy finished.
+
+## 3. If the app ever won't open
+
+Extracted games live on the TV's **internal storage**, and a Fire TV with no
+free space left can refuse to open apps entirely. If AeonPS1 stops opening:
+
+1. Reopen it — after two failed starts it opens a **Storage & rescue**
+   screen by itself. (You can also get there any time from the app's
+   Settings → **Storage & rescue**, before things get bad.)
+2. It shows free space, how much the extracted games use, and which library
+   folders are watched. Your options, biggest buttons first:
+   - **Try opening normally** — opens the library skipping the folder scan
+     for this run.
+   - **Forget library folders and added files** — clears the list only;
+     **no game files are deleted**. Re-add folders later in Browse Files.
+   - **Delete an extracted game** — removes one extracted game folder to
+     free space (the original `.rar`/`.zip` stays where it was).
+
+Note: if the stick is *completely* full, Android itself may block any app
+from starting; free a little space first (the rescue screen is the fastest
+way once the app can launch again).

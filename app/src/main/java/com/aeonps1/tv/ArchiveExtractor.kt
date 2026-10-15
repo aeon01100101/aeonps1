@@ -169,9 +169,17 @@ object ArchiveExtractor {
     private fun checkSpace(destDir: File, need: Long): Result.NoSpace? {
         return try {
             destDir.mkdirs()
-            val have = destDir.usableSpace
-            val required = (need * 1.05).toLong() + 10L * 1024 * 1024
-            if (have < required) Result.NoSpace(need, have) else null
+            val stat = android.os.StatFs(destDir.absolutePath)
+            val have = stat.availableBytes
+            val total = stat.totalBytes
+            // Extraction must LEAVE a real reserve behind: a full Fire TV
+            // stops apps from opening at all. Reserve = max(250 MB, 5% of disk).
+            val reserve = maxOf(
+                RescuePrefs.EXTRACT_RESERVE_BYTES,
+                (total * 0.05).toLong()
+            )
+            val required = need + reserve
+            if (have < required) Result.NoSpace(required, have) else null
         } catch (e: Exception) {
             null
         }
