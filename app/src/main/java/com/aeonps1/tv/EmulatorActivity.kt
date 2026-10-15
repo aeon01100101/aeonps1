@@ -21,6 +21,7 @@ class EmulatorActivity : Activity() {
 
     companion object {
         const val EXTRA_PATH = "game_path"
+        const val EXTRA_ENGINE = "engine_override"
 
         // libretro RETRO_DEVICE_ID_JOYPAD_* ids
         private const val ID_CROSS = 0
@@ -40,6 +41,11 @@ class EmulatorActivity : Activity() {
         private const val ID_L3 = 14
         private const val ID_R3 = 15
     }
+
+    private var engineOverride: String? = null
+    private fun effectiveEngine(): String = engineOverride ?: enginePref(this)
+    private fun effectiveCoreFile(): String =
+        if (effectiveEngine() == ENGINE_PCSX) CORE_PCSX else CORE_DUCKSTATION
 
     @Volatile private var running = false
     @Volatile private var paused = false
@@ -66,6 +72,8 @@ class EmulatorActivity : Activity() {
         gamePath = intent.getStringExtra(EXTRA_PATH) ?: run { finish(); return }
         savesDir = File(filesDir, "saves").apply { mkdirs() }
         File(filesDir, "bios").mkdirs()
+        // Session override (e.g. "Use PCSX this time") beats the stored engine.
+        intent.getStringExtra(EXTRA_ENGINE)?.let { engineOverride = it }
 
         fpsView = findViewById(R.id.fps_view)
         if (prefs().getBoolean("show_fps", false)) fpsView.visibility = android.view.View.VISIBLE
@@ -81,7 +89,36 @@ class EmulatorActivity : Activity() {
             }
         })
 
-        startEmulation()
+        // The DuckStation-family engine has no built-in BIOS replacement:
+        // without a real BIOS file it cannot start any game.
+        if (effectiveEngine() != ENGINE_PCSX && !hasDuckStationBios(this)) {
+            askAboutBios()
+        } else {
+            startEmulation()
+        }
+    }
+
+    private fun askAboutBios() {
+        runOnUiThread {
+            try {
+                AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.bios_needed_title))
+                    .setMessage(getString(R.string.bios_needed_body))
+                    .setPositiveButton(getString(R.string.open_bios_screen)) { _, _ ->
+                        startActivity(android.content.Intent(this, BiosActivity::class.java))
+                        finish()
+                    }
+                    .setNeutralButton(getString(R.string.use_pcsx_this_time)) { _, _ ->
+                        engineOverride = ENGINE_PCSX
+                        startEmulation()
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+                    .setCancelable(false)
+                    .show()
+            } catch (e: Exception) {
+                finish()
+            }
+        }
     }
 
     private fun stateFile(): File {
@@ -93,7 +130,7 @@ class EmulatorActivity : Activity() {
         running = true
         emuThread = Thread({
             val corePath = applicationInfo.nativeLibraryDir +
-                "/libpcsx_rearmed_libretro_android.so"
+                "/" + effectiveCoreFile()
             val biosDir = File(filesDir, "bios").absolutePath
             if (!EmulatorBridge.nativeInit(corePath, biosDir, savesDir.absolutePath)) {
                 fail(getString(R.string.load_step_core)); return@Thread
@@ -174,6 +211,20 @@ class EmulatorActivity : Activity() {
                 "unknown"
             }
         } else "unknown"
+        val logTail = try {
+            EmulatorBridge.nativeGetLogTail().ifBlank { "(no engine log)" }
+        } catch (e: Exception) {
+            "(engine log unavailable: ${e.message})"
+        }
+        val coreMsg = try {
+            EmulatorBridge.nativeGetCoreMessage().ifBlank { null }
+        } catch (e: Exception) {
+            null
+        }
+        val details = buildString {
+            if (coreMsg != null) append("Core said: ").append(coreMsg).append("\n\n")
+            append(logTail)
+        }.take(3000)
         runOnUiThread {
             try {
                 AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
@@ -184,7 +235,8 @@ class EmulatorActivity : Activity() {
                             step,
                             file?.name ?: gamePath,
                             gamePath,
-                            size
+                            size,
+                            details
                         )
                     )
                     .setPositiveButton(android.R.string.ok) { _, _ -> finish() }

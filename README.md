@@ -1,14 +1,33 @@
 # AeonPS1 — PlayStation 1 Emulator for Fire TV
 
-**AeonPS1 1.1.0** · package `com.aeonps1.tv` · minSdk 24 · target/compile SDK 35
+**AeonPS1 1.3.0** · package `com.aeonps1.tv` · minSdk 24 · target/compile SDK 35
 
 A PlayStation 1 emulator for Amazon Fire TV, built the same sovereign way as
-AeonTV: a TV-first Kotlin frontend written for this project, running the real
-open-source **PCSX-ReARMed** libretro core (GPLv3, ARM-optimized — the standard
-PS1 core used by RetroArch) through a native JNI bridge written in C.
+AeonTV: a TV-first Kotlin frontend written for this project, running real
+open-source PS1 emulation cores through a native JNI bridge written in C.
 
 No BIOS and no games are bundled. You supply your own game files (that you own)
-and, optionally, your own BIOS file.
+and your own BIOS file (required for the DuckStation engine).
+
+## Prototype: DuckStation engine (v1.3.0+)
+
+This build ships **two engines**, switchable in Settings → Emulator engine:
+
+- **DuckStation engine (SwanStation)** — the default in this prototype.
+  SwanStation is libretro's GPLv3 fork of the **DuckStation** engine
+  (upstream DuckStation relicensed to CC BY-NC-ND in Sept 2024, which forbids
+  modified redistribution — so SwanStation, the GPL fork, is the form of the
+  engine that can legally ship here). It is the more accurate, better-looking
+  engine, but it **requires a real PlayStation BIOS file** (no built-in HLE).
+  The bridge runs it in software-rendering mode, answers its core options
+  (renderer forced to Software), and implements the extra plumbing it needs
+  (core options v2, disk control, logging).
+- **PCSX-ReARMed** — the lighter ARM-optimized core from earlier releases,
+  still available. Plays most games with no BIOS (built-in HLE replacement).
+
+Since v1.2.1, if a game won't start the app keeps the failure screen up with
+the engine's own log, so the next refusal diagnoses itself — quote those lines
+back and the plumbing gets fixed.
 
 ## What it does (exact)
 
@@ -62,9 +81,23 @@ and, optionally, your own BIOS file.
   - Both verified: real ARM ELF shared objects exporting all 20 `retro_*`
     entry points (`retro_init`, `retro_load_game`, `retro_run`, …).
 - `libretro.h` from libretro/libretro-common (master, 2026-10-15).
-- PCSX-ReARMed is GPLv3. This app's own frontend/bridge code is yours; the
+- Core (added v1.3.0): `swanstation_libretro_android.so` from the libretro
+  buildbot nightly (android/latest), downloaded 2026-10-15:
+  - `arm64-v8a`: 5,698,592 bytes,
+    sha256 `3ff5d312b6c9e4e875921560dc04227a31bd8497d0c6e032fa4af463c801352b`
+  - `armeabi-v7a`: 5,210,156 bytes,
+    sha256 `b4ae25c61b709b83c5d0be4b46243aaca993e8fb69f2241c25bb302fbf74b319`
+  - Both verified: real ARM ELF shared objects exporting all 25 `retro_*`
+    entry points. Core info (`swanstation_libretro.info`, GPLv3): extensions
+    `exe|psexe|cue|bin|img|iso|chd|pbp|ecm|mds|psf|m3u`; BIOS required, accepted
+    names `scph5500/5501/5502.bin`, `psxonpsp660.bin`, `ps1_rom.bin`.
+  SwanStation is libretro's GPLv3 fork of the DuckStation engine
+  (github.com/libretro/swanstation). Upstream DuckStation relicensed to
+  CC BY-NC-ND (no derivatives) in Sept 2024, so the GPL fork is the
+  redistributable form.
+- Both cores are GPLv3. This app's own frontend/bridge code is yours; the
   core `.so` files ship inside the APK as required by the license terms —
-  keep them with the app and point users at the PCSX-ReARMed sources.
+  keep them with the app and point users at the cores' sources.
   No BIOS, no games, no keys are bundled.
 
 ## Honest limits (v1.1)
@@ -78,7 +111,9 @@ and, optionally, your own BIOS file.
 - One save-state slot per game; no multiple slots, no rewind, no cheats,
   no netplay, no shaders/filters.
 - Only one controller (port 1). No multitap, no light guns, no rumble.
-- No core-options UI: the core runs at its defaults.
+- No core-options UI: cores run at their defaults, except the bridge forces
+  the DuckStation engine's renderer to Software (its option key is
+  `swanstation_GPU_Renderer`, verified in the core's own options source).
 - `.bin` without its `.cue` plays but CD audio tracks may be missing — keep
   the `.cue` next to the `.bin`.
 - Performance depends on the Fire TV model. PCSX-ReARMed is the lightest

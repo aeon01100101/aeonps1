@@ -51,7 +51,7 @@ class BiosActivity : Activity() {
 
     private fun refreshStatus() {
         val found = biosDir().listFiles()
-            ?.filter { it.isFile && it.name.lowercase(Locale.US).startsWith("scph") }
+            ?.filter { it.isFile && isBiosName(it.name) }
             ?.sortedBy { it.name }
             ?: emptyList()
         statusView.text = if (found.isNotEmpty()) {
@@ -59,6 +59,13 @@ class BiosActivity : Activity() {
         } else {
             getString(R.string.bios_none)
         }
+    }
+
+    /** Names the DuckStation-family engine accepts (plus any scph*.bin). */
+    private fun isBiosName(name: String): Boolean {
+        val lower = name.lowercase(Locale.US)
+        return lower in DUCKSTATION_BIOS_NAMES ||
+            (lower.startsWith("scph") && lower.endsWith(".bin"))
     }
 
     /** Copy [ins] into the bios folder under [name]; report through the same path as SAF. */

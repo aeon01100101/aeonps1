@@ -15,6 +15,10 @@ class SettingsActivity : Activity() {
 
         val btnScreen = findViewById<Button>(R.id.btn_screen)
         val btnFps = findViewById<Button>(R.id.btn_fps)
+        val btnEngine = findViewById<Button>(R.id.btn_engine)
+
+        fun engineLabel() = if (isDuckStation(this)) getString(R.string.engine_duckstation)
+        else getString(R.string.engine_pcsx)
 
         fun refresh() {
             val mode = prefs().getInt("screen_mode", 0)
@@ -23,6 +27,7 @@ class SettingsActivity : Activity() {
             val fps = prefs().getBoolean("show_fps", false)
             btnFps.text = "${getString(R.string.show_fps)}: " +
                 if (fps) getString(R.string.on) else getString(R.string.off)
+            btnEngine.text = "${getString(R.string.engine)}: ${engineLabel()}"
         }
         refresh()
 
@@ -34,6 +39,11 @@ class SettingsActivity : Activity() {
         btnFps.setOnClickListener {
             val cur = prefs().getBoolean("show_fps", false)
             prefs().edit().putBoolean("show_fps", !cur).apply()
+            refresh()
+        }
+        btnEngine.setOnClickListener {
+            val next = if (isDuckStation(this)) ENGINE_PCSX else ENGINE_DUCKSTATION
+            prefs().edit().putString("engine", next).apply()
             refresh()
         }
         findViewById<View>(R.id.btn_back).setOnClickListener { finish() }

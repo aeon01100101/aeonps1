@@ -4,7 +4,7 @@
 
 1. On your Fire TV, install a file manager that can sideload APKs (e.g. **Downloader**
    by AFTVnews) and allow "Install unknown apps" for it when asked.
-2. Copy `aeonps1-v1.2.0.apk` to a USB stick (or send it to the TV with
+2. Copy `aeonps1-v1.3.0.apk` to a USB stick (or send it to the TV with
    "Send Files to TV" / adb).
 3. Open the APK on the TV and install. It appears as **AeonPS1** in your apps.
 
@@ -106,3 +106,19 @@ free space left can refuse to open apps entirely. If AeonPS1 stops opening:
 Note: if the stick is *completely* full, Android itself may block any app
 from starting; free a little space first (the rescue screen is the fastest
 way once the app can launch again).
+
+## 4. Choose your engine (1.3.0+)
+
+Settings → **Emulator engine** picks which core plays your games:
+
+- **DuckStation engine (SwanStation)** — the default prototype engine. More
+  accurate, but it **needs a real PlayStation BIOS file** or no game will
+  start. Import yours on the **BIOS** screen (accepted names:
+  `scph5501.bin`, `scph5502.bin`, `scph5500.bin`, `psxonpsp660.bin`,
+  `ps1_rom.bin` — from a PlayStation you own).
+- **PCSX-ReARMed** — the lighter engine from earlier releases; plays most
+  games with no BIOS (built-in HLE), and stays as the fallback.
+
+If a game won't start with the DuckStation engine, the app keeps a failure
+screen up that includes the engine's own log — read it (or send a photo of
+it) and the next build fixes whatever it names.

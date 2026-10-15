@@ -29,6 +29,16 @@ object SafePrefs {
         }
     }
 
+    fun getString(prefs: SharedPreferences, key: String, def: String): String {
+        return try {
+            prefs.getString(key, def) ?: def
+        } catch (e: Exception) {
+            Log.w(TAG, "bad pref $key, resetting", e)
+            remove(prefs, key)
+            def
+        }
+    }
+
     fun getInt(prefs: SharedPreferences, key: String, def: Int): Int {
         return try {
             prefs.getInt(key, def)

@@ -6,9 +6,18 @@ import java.util.Locale
 /** A PS1 game file found on storage. */
 data class GameEntry(val title: String, val file: File)
 
-private val GAME_EXTS = setOf("cue", "bin", "iso", "pbp", "chd")
+/* Union of what the bundled engines can open. PCSX-ReARMed handles the
+ * classic set; the DuckStation-family engine additionally reads ecm/img/mds
+ * (see its core info). Files an engine can't open fail loudly with the
+ * "This game wouldn't start" dialog, so nothing is silently broken. */
+private val GAME_EXTS = setOf(
+    "cue", "bin", "iso", "pbp", "chd",
+    "img", "mds", "ecm", "exe", "psexe", "m3u"
+)
 /** Extensions that make a same-basename .bin redundant (multi-track images). */
-private val PREFERRED_EXTS = setOf("cue", "chd", "pbp", "iso", "m3u")
+private val PREFERRED_EXTS = setOf(
+    "cue", "chd", "pbp", "iso", "m3u", "img", "mds", "ecm", "exe"
+)
 
 object GameScanner {
     fun isGameExt(ext: String): Boolean = ext.lowercase(Locale.US) in GAME_EXTS

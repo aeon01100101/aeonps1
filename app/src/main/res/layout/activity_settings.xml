@@ -29,6 +29,11 @@
             android:layout_marginTop="16dp" />
 
         <Button
+            android:id="@+id/btn_engine"
+            style="@style/AeonButton"
+            android:layout_marginTop="16dp" />
+
+        <Button
             android:id="@+id/btn_storage"
             style="@style/AeonButton"
             android:layout_marginTop="16dp"

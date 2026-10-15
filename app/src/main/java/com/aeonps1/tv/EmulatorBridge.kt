@@ -25,4 +25,8 @@ object EmulatorBridge {
     external fun nativeGetTargetFps(): Float
     external fun nativeFlushSaveRam()
     external fun nativeShutdown()
+    /** The bridge's recent diagnostic log (env refusals, core log lines). */
+    external fun nativeGetLogTail(): String
+    /** The last message the core sent via the message interface, if any. */
+    external fun nativeGetCoreMessage(): String
 }

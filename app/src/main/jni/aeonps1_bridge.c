@@ -1,17 +1,25 @@
-/* AeonPS1 native bridge: a minimal libretro frontend for PCSX-ReARMed.
+/* AeonPS1 native bridge: a libretro frontend for PCSX-ReARMed and
+ * SwanStation (libretro's GPL fork of the DuckStation engine).
  *
  * Loads the core .so at runtime (dlopen), implements the libretro frontend
- * callbacks, blits video frames to an ANativeWindow (SurfaceView), and feeds
+ * callbacks (video, audio, input, core options, disk control, logging),
+ * blits video frames to an ANativeWindow (SurfaceView), and feeds
  * audio into a lock-free-ish ring buffer that Kotlin drains into AudioTrack.
  *
- * All retro_* calls happen on the emulator thread. Button/analog state and
- * the window handle are the only things touched from other threads.
+ * Software rendering only: SET_HW_RENDER is refused, so every core must use
+ * its software framebuffer path (works on every Fire TV).
+ *
+ * All retro_* calls happen on the emulator thread. Button/analog state,
+ * the window handle, and the log ring are the only things touched from
+ * other threads.
  */
 
 #include <jni.h>
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <ctype.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -109,6 +117,160 @@ static bool g_inited = false;
 static bool g_game_loaded = false;
 
 /* ------------------------------------------------------------------ */
+/* Diagnostic ring log + core message                                   */
+/* ------------------------------------------------------------------ */
+
+#define LOG_RING_LINES 48
+#define LOG_RING_LEN 256
+
+static char g_log_ring[LOG_RING_LINES][LOG_RING_LEN];
+static int g_log_head = 0;
+static char g_core_message[512] = "";
+static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static void log_ring_add(const char *line) {
+    if (!line || !*line) return;
+    pthread_mutex_lock(&g_log_mutex);
+    strncpy(g_log_ring[g_log_head % LOG_RING_LINES], line, LOG_RING_LEN - 1);
+    g_log_ring[g_log_head % LOG_RING_LINES][LOG_RING_LEN - 1] = '\0';
+    g_log_head++;
+    pthread_mutex_unlock(&g_log_mutex);
+}
+
+static void core_message_set(const char *msg) {
+    if (!msg) return;
+    pthread_mutex_lock(&g_log_mutex);
+    strncpy(g_core_message, msg, sizeof(g_core_message) - 1);
+    g_core_message[sizeof(g_core_message) - 1] = '\0';
+    pthread_mutex_unlock(&g_log_mutex);
+    log_ring_add(msg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Core options store (SET_CORE_OPTIONS*, answered via GET_VARIABLE)     */
+/* ------------------------------------------------------------------ */
+
+#define MAX_OPT_KEY 96
+#define MAX_OPT_VAL 160
+#define MAX_OPTIONS 256
+
+static char g_opt_keys[MAX_OPTIONS][MAX_OPT_KEY];
+static char g_opt_vals[MAX_OPTIONS][MAX_OPT_VAL];
+static int g_opt_count = 0;
+static bool g_var_update_pending = false;
+
+static const char *opt_get(const char *key) {
+    if (!key) return NULL;
+    for (int i = 0; i < g_opt_count; i++)
+        if (strcmp(g_opt_keys[i], key) == 0)
+            return g_opt_vals[i];
+    return NULL;
+}
+
+static void opt_set(const char *key, const char *val) {
+    if (!key || !val || !*key) return;
+    for (int i = 0; i < g_opt_count; i++) {
+        if (strcmp(g_opt_keys[i], key) == 0) {
+            strncpy(g_opt_vals[i], val, MAX_OPT_VAL - 1);
+            g_opt_vals[i][MAX_OPT_VAL - 1] = '\0';
+            return;
+        }
+    }
+    if (g_opt_count < MAX_OPTIONS) {
+        strncpy(g_opt_keys[g_opt_count], key, MAX_OPT_KEY - 1);
+        strncpy(g_opt_vals[g_opt_count], val, MAX_OPT_VAL - 1);
+        g_opt_keys[g_opt_count][MAX_OPT_KEY - 1] = '\0';
+        g_opt_vals[g_opt_count][MAX_OPT_VAL - 1] = '\0';
+        g_opt_count++;
+    }
+}
+
+static bool strcasestr_local(const char *hay, const char *needle) {
+    if (!hay || !needle) return false;
+    size_t nl = strlen(needle), hl = strlen(hay);
+    if (nl > hl) return false;
+    for (size_t i = 0; i + nl <= hl; i++)
+        if (strncasecmp(hay + i, needle, nl) == 0) return true;
+    return false;
+}
+
+/* Pick a default from a value list: explicit default_value wins,
+ * otherwise the first offered value (libretro convention). */
+static const char *opt_pick_default(const struct retro_core_option_value *values,
+                                    const char *default_value) {
+    if (default_value && *default_value) return default_value;
+    if (values && values[0].value && *values[0].value) return values[0].value;
+    return NULL;
+}
+
+/* Renderer override: any option whose key mentions "renderer" gets forced
+ * to "Software" when offered, so our framebuffer video path is used. */
+static void opt_register_one(const char *key,
+                             const struct retro_core_option_value *values,
+                             const char *chosen) {
+    if (key && strcasestr_local(key, "renderer") && values) {
+        for (int i = 0; i < RETRO_NUM_CORE_OPTION_VALUES_MAX && values[i].value; i++) {
+            if (strcasecmp(values[i].value, "Software") == 0) {
+                opt_set(key, values[i].value);
+                LOGI("core option %s forced to Software", key);
+                return;
+            }
+        }
+    }
+    if (chosen) opt_set(key, chosen);
+}
+
+static void opt_register_v2(const struct retro_core_option_v2_definition *defs) {
+    g_opt_count = 0;
+    if (!defs) return;
+    for (; defs->key; defs++)
+        opt_register_one(defs->key, defs->values,
+                         opt_pick_default(defs->values, defs->default_value));
+    LOGI("registered %d core options (v2)", g_opt_count);
+}
+
+static void opt_register_v1(const struct retro_core_option_definition *defs) {
+    g_opt_count = 0;
+    if (!defs) return;
+    for (; defs->key; defs++)
+        opt_register_one(defs->key, defs->values,
+                         opt_pick_default(defs->values, defs->default_value));
+    LOGI("registered %d core options (v1)", g_opt_count);
+}
+
+static void opt_register_variables(const struct retro_variable *vars) {
+    g_opt_count = 0;
+    if (!vars) return;
+    for (; vars->key; vars++) {
+        /* Format: "description; v1|v2|v3" — first value is the default. */
+        char dflt[MAX_OPT_VAL] = "";
+        if (vars->value) {
+            const char *semi = strchr(vars->value, ';');
+            const char *p = semi ? semi + 1 : vars->value;
+            while (*p == ' ') p++;
+            size_t n = 0;
+            while (p[n] && p[n] != '|' && n < sizeof(dflt) - 1) {
+                dflt[n] = p[n];
+                n++;
+            }
+            dflt[n] = '\0';
+        }
+        opt_set(vars->key, dflt);
+    }
+    LOGI("registered %d core options (variables)", g_opt_count);
+}
+
+/* ------------------------------------------------------------------ */
+/* Disk control: the CORE implements it; the frontend stores the       */
+/* pointers (used later if a multi-disc swap UI is ever added).        */
+/* ------------------------------------------------------------------ */
+
+static struct retro_disk_control_callback g_core_disk_cb;
+static bool g_has_core_disk_cb = false;
+static struct retro_disk_control_ext_callback g_core_disk_ext_cb;
+static bool g_has_core_disk_ext_cb = false;
+
+/* ------------------------------------------------------------------ */
 /* Save RAM (.srm) persistence                                           */
 /* ------------------------------------------------------------------ */
 
@@ -160,6 +322,7 @@ static void frontend_log(enum retro_log_level level, const char *fmt, ...) {
     if (level == RETRO_LOG_ERROR) prio = ANDROID_LOG_ERROR;
     else if (level == RETRO_LOG_WARN) prio = ANDROID_LOG_WARN;
     __android_log_print(prio, "AeonPS1Core", "%s", buf);
+    log_ring_add(buf);
 }
 
 static bool env_callback(unsigned cmd, void *data) {
@@ -202,6 +365,7 @@ static bool env_callback(unsigned cmd, void *data) {
     case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
     case RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL:
     case RETRO_ENVIRONMENT_SET_MINIMUM_AUDIO_LATENCY:
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK:
         return true;
     case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT:
         *(unsigned *)data = RETRO_SAVESTATE_CONTEXT_NORMAL;
@@ -211,24 +375,120 @@ static bool env_callback(unsigned cmd, void *data) {
         cb->log = frontend_log;
         return true;
     }
-    case RETRO_ENVIRONMENT_SET_MESSAGE:
-    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
+        *(unsigned *)data = 1;
+        return true;
+    case RETRO_ENVIRONMENT_SET_MESSAGE: {
         const struct retro_message *m = (const struct retro_message *)data;
-        if (m && m->msg) LOGI("core message: %s", m->msg);
+        if (m && m->msg) {
+            LOGI("core message: %s", m->msg);
+            core_message_set(m->msg);
+        }
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT: {
+        const struct retro_message_ext *m = (const struct retro_message_ext *)data;
+        if (m && m->msg) {
+            LOGI("core message: %s", m->msg);
+            core_message_set(m->msg);
+        }
         return true;
     }
     case RETRO_ENVIRONMENT_SHUTDOWN:
         g_shutdown_requested = true;
         return true;
-    case RETRO_ENVIRONMENT_GET_VARIABLE:
-    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+    /* ---- core options: register, store defaults, answer queries ---- */
     case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
+        *(unsigned *)data = 2;
+        return true;
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: {
+        const struct retro_core_options_v2 *o = (const struct retro_core_options_v2 *)data;
+        opt_register_v2(o ? o->definitions : NULL);
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: {
+        const struct retro_core_options_v2_intl *intl =
+            (const struct retro_core_options_v2_intl *)data;
+        const struct retro_core_options_v2 *us = intl ? intl->us : NULL;
+        opt_register_v2(us ? us->definitions : NULL);
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS: {
+        /* NOTE: in this libretro.h, data points DIRECTLY at the definition
+         * array (no wrapper struct). */
+        opt_register_v1((const struct retro_core_option_definition *)data);
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_VARIABLES: {
+        opt_register_variables((const struct retro_variable *)data);
+        return true;
+    }
+    case RETRO_ENVIRONMENT_GET_VARIABLE: {
+        struct retro_variable *var = (struct retro_variable *)data;
+        const char *val = var ? opt_get(var->key) : NULL;
+        if (var) {
+            var->value = val;
+            if (val) g_var_update_pending = true;
+        }
+        return val != NULL;
+    }
+    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: {
+        bool pending = g_var_update_pending;
+        g_var_update_pending = false;
+        *(bool *)data = pending;
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_VARIABLE: {
+        const struct retro_variable *var = (const struct retro_variable *)data;
+        if (!var) return true; /* availability query */
+        if (var->key && var->value && opt_get(var->key)) {
+            opt_set(var->key, var->value);
+            g_var_update_pending = true;
+            LOGI("core forced option %s=%s", var->key, var->value);
+            return true;
+        }
+        return false;
+    }
+    /* ---- hardware rendering: refused, software framebuffer only ---- */
+    case RETRO_ENVIRONMENT_SET_HW_RENDER: {
+        LOGI("core requested hardware rendering: refused (software path only)");
+        log_ring_add("core requested hardware rendering: refused, using software");
+        return false;
+    }
+    /* ---- disk control: store the core's interface ---- */
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE: {
+        const struct retro_disk_control_callback *cb =
+            (const struct retro_disk_control_callback *)data;
+        if (cb) {
+            g_core_disk_cb = *cb;
+            g_has_core_disk_cb = true;
+            LOGI("core provided disk control interface (v0)");
+        } else {
+            g_has_core_disk_cb = false;
+        }
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE: {
+        const struct retro_disk_control_ext_callback *cb =
+            (const struct retro_disk_control_ext_callback *)data;
+        if (cb) {
+            g_core_disk_ext_cb = *cb;
+            g_has_core_disk_ext_cb = true;
+            LOGI("core provided disk control interface (v1 ext)");
+        } else {
+            g_has_core_disk_ext_cb = false;
+        }
+        return true;
+    }
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
-        /* No core-options UI in v1.0; no rumble support. */
         return false;
-    default:
+    default: {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "env cmd %u refused", cmd);
         LOGW("unhandled environment cmd %u", cmd);
+        log_ring_add(buf);
         return false;
+    }
     }
 }
 
@@ -628,6 +888,37 @@ Java_com_aeonps1_tv_EmulatorBridge_nativeGetTargetFps(JNIEnv *env, jobject thiz)
 JNIEXPORT void JNICALL
 Java_com_aeonps1_tv_EmulatorBridge_nativeFlushSaveRam(JNIEnv *env, jobject thiz) {
     if (g_inited && g_game_loaded) save_ram_store();
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_aeonps1_tv_EmulatorBridge_nativeGetLogTail(JNIEnv *env, jobject thiz) {
+    char out[LOG_RING_LINES * (LOG_RING_LEN + 1)];
+    out[0] = '\0';
+    pthread_mutex_lock(&g_log_mutex);
+    int total = g_log_head < LOG_RING_LINES ? g_log_head : LOG_RING_LINES;
+    int start = g_log_head - total;
+    size_t off = 0;
+    for (int i = 0; i < total; i++) {
+        const char *line = g_log_ring[(start + i) % LOG_RING_LINES];
+        size_t n = strlen(line);
+        if (off + n + 2 >= sizeof(out)) break;
+        memcpy(out + off, line, n);
+        off += n;
+        out[off++] = '\n';
+        out[off] = '\0';
+    }
+    pthread_mutex_unlock(&g_log_mutex);
+    return (*env)->NewStringUTF(env, out);
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_aeonps1_tv_EmulatorBridge_nativeGetCoreMessage(JNIEnv *env, jobject thiz) {
+    char buf[512];
+    pthread_mutex_lock(&g_log_mutex);
+    strncpy(buf, g_core_message, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    pthread_mutex_unlock(&g_log_mutex);
+    return (*env)->NewStringUTF(env, buf);
 }
 
 JNIEXPORT void JNICALL
