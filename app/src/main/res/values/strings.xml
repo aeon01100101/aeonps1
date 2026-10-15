@@ -6,7 +6,7 @@
     <string name="browse_files">Browse Files</string>
     <string name="bios">BIOS</string>
     <string name="settings">Settings</string>
-    <string name="no_games">No games yet.\n\nPress "Browse Files" and look through your storage\n(USB stick, internal storage): open a games folder and press\n"Use this folder", or open a game and pick "Play now".\nYour games stay where they are — nothing is copied.\nYou must own the games you play.</string>
+    <string name="no_games">No games yet.\n\nPress "Browse Files" and look through your storage\n(USB stick, internal storage): open a games folder and press\n"Use this folder", open a game and pick "Play now",\nor tap a .rar/.zip and pick "Extract &amp; add games"\n(it unpacks itself and joins your library).\nYour games stay where they are — nothing is copied.\nYou must own the games you play.</string>
     <string name="importing">Copying game files… this can take a while for big games.</string>
     <string name="import_done">Games added.</string>
     <string name="import_failed">Could not add some files.</string>
@@ -35,7 +35,20 @@
     <string name="loaded">Save loaded.</string>
     <string name="load_failed">No save found, or it failed to load.</string>
     <string name="load_error">Could not start the game.</string>
-    <string name="version_line">AeonPS1 1.1.0 · PCSX-ReARMed core</string>
+    <string name="version_line">AeonPS1 1.2.0 · PCSX-ReARMed core</string>
+
+    <!-- Archive extraction -->
+    <string name="remove_from_library">Remove from library folders</string>
+    <string name="folder_removed">Folder removed from your library.</string>
+    <string name="extract_and_add">Extract &amp; add games</string>
+    <string name="extracting_title">Extracting %1$s</string>
+    <string name="extract_cancelled">Extraction cancelled.</string>
+    <string name="extract_failed">Couldn\'t extract that archive:\n%1$s</string>
+    <string name="extract_done">Extracted \'%1$s\' — %2$d game(s) added to your library.</string>
+    <string name="extract_no_space">Not enough free space to unpack that.\nNeeded: %1$s · Available: %2$s</string>
+    <string name="already_extracted">\'%1$s\' looks already extracted.</string>
+    <string name="use_existing">Use that folder</string>
+    <string name="extract_again">Extract again</string>
 
     <!-- File explorer -->
     <string name="file_explorer">File Explorer</string>

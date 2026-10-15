@@ -40,7 +40,12 @@ class FileExplorerActivity : Activity() {
     private sealed class Row
     private data class RootRow(val label: String, val path: String) : Row()
     private object UpRow : Row()
-    private data class EntryRow(val file: File, val isDir: Boolean, val isGame: Boolean) : Row()
+    private data class EntryRow(
+        val file: File,
+        val isDir: Boolean,
+        val isGame: Boolean,
+        val isArchive: Boolean = false
+    ) : Row()
 
     private val rows = mutableListOf<Row>()
     private lateinit var adapter: FileAdapter
@@ -119,8 +124,13 @@ class FileExplorerActivity : Activity() {
         breadcrumb.text =
             if (pickMode) getString(R.string.pick_file_title)
             else currentPath?.absolutePath ?: getString(R.string.file_explorer)
-        btnUseFolder.visibility =
-            if (currentPath != null && !pickMode) View.VISIBLE else View.GONE
+        val showFolderBtn = currentPath != null && !pickMode
+        btnUseFolder.visibility = if (showFolderBtn) View.VISIBLE else View.GONE
+        if (showFolderBtn) {
+            btnUseFolder.text =
+                if (isLibraryFolder(currentPath!!)) getString(R.string.remove_from_library)
+                else getString(R.string.use_this_folder)
+        }
         errorView.visibility = View.GONE
         grantCard.visibility = View.GONE
 
@@ -145,7 +155,13 @@ class FileExplorerActivity : Activity() {
                 rows.addAll(kids.filter { it.isDirectory }.sortedWith(byName)
                     .map { EntryRow(it, true, false) })
                 rows.addAll(kids.filter { it.isFile }.sortedWith(byName)
-                    .map { EntryRow(it, false, GameScanner.isGameExt(it.extension)) })
+                    .map {
+                        EntryRow(
+                            it, false,
+                            GameScanner.isGameExt(it.extension),
+                            ArchiveExtractor.isArchiveExt(it.extension)
+                        )
+                    })
                 if (kids.isEmpty()) {
                     errorView.text = getString(R.string.folder_empty)
                     errorView.visibility = View.VISIBLE
@@ -184,8 +200,12 @@ class FileExplorerActivity : Activity() {
     }
 
     private fun onFileClicked(file: File, isGame: Boolean) {
+        val ext = file.extension.lowercase(Locale.US)
+        if (!pickMode && ArchiveExtractor.isArchiveExt(ext)) {
+            extractArchiveDialog(file)
+            return
+        }
         if (pickMode) {
-            val ext = file.extension.lowercase(Locale.US)
             if (allowedExts.isEmpty() || ext in allowedExts) {
                 val result = Intent().putExtra(EXTRA_PICKED_PATH, file.absolutePath)
                 setResult(RESULT_OK, result)
@@ -230,12 +250,42 @@ class FileExplorerActivity : Activity() {
         Toast.makeText(this, getString(R.string.file_added), Toast.LENGTH_SHORT).show()
     }
 
+    /** The folder button is a toggle: add it, or take it back out again. */
     private fun useThisFolder() {
         val dir = currentPath ?: return
         val set = prefs().getStringSet("library_folders", emptySet())!!.toMutableSet()
-        set.add(dir.absolutePath)
-        prefs().edit().putStringSet("library_folders", set).apply()
-        Toast.makeText(this, getString(R.string.folder_added), Toast.LENGTH_SHORT).show()
+        if (set.remove(dir.absolutePath)) {
+            prefs().edit().putStringSet("library_folders", set).apply()
+            Toast.makeText(this, getString(R.string.folder_removed), Toast.LENGTH_SHORT).show()
+        } else {
+            set.add(dir.absolutePath)
+            prefs().edit().putStringSet("library_folders", set).apply()
+            Toast.makeText(this, getString(R.string.folder_added), Toast.LENGTH_SHORT).show()
+        }
+        refresh() // update the button label
+    }
+
+    private fun isLibraryFolder(dir: File): Boolean =
+        prefs().getStringSet("library_folders", emptySet())!!.contains(dir.absolutePath)
+
+    private fun extractArchiveDialog(file: File) {
+        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+            .setTitle(file.name)
+            .setItems(
+                arrayOf(
+                    getString(R.string.extract_and_add),
+                    getString(R.string.cancel)
+                )
+            ) { _, which ->
+                if (which == 0) {
+                    ExtractionUi.extractArchiveToLibrary(this, file) { result ->
+                        // The folder registered itself with the library;
+                        // return so MainActivity rescans and shows the games.
+                        if (result is ArchiveExtractor.Result.Ok) finish()
+                    }
+                }
+            }
+            .show()
     }
 
     private class FileAdapter(
@@ -283,6 +333,11 @@ class FileExplorerActivity : Activity() {
                         holder.name.text = row.file.name
                         holder.size.text = ""
                         styleName(holder.name, R.color.text)
+                    } else if (row.isArchive) {
+                        holder.icon.text = "\uD83D\uDCE6" // package: archive
+                        holder.name.text = row.file.name
+                        holder.size.text = humanSize(row.file.length())
+                        styleName(holder.name, R.color.accent)
                     } else if (row.isGame) {
                         holder.icon.text = "\u25B6" // play triangle
                         holder.name.text = GameScanner.prettyTitle(row.file)
@@ -306,12 +361,15 @@ class FileExplorerActivity : Activity() {
         override fun getItemCount() = items.size
 
         companion object {
-            fun humanSize(bytes: Long): String = when {
-                bytes < 1024L -> "$bytes B"
-                bytes < 1024L * 1024L -> "%.1f KB".format(bytes / 1024.0)
-                bytes < 1024L * 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024))
-                else -> "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
-            }
+            fun humanSize(bytes: Long): String = com.aeonps1.tv.humanSize(bytes)
         }
     }
+}
+
+/** Shared human-readable byte count (used by the explorer and extraction UI). */
+internal fun humanSize(bytes: Long): String = when {
+    bytes < 1024L -> "$bytes B"
+    bytes < 1024L * 1024L -> "%.1f KB".format(bytes / 1024.0)
+    bytes < 1024L * 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024))
+    else -> "%.2f GB".format(bytes / (1024.0 * 1024 * 1024))
 }

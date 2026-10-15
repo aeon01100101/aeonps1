@@ -161,6 +161,7 @@ class MainActivity : Activity() {
 
     private fun importUris(uris: List<Uri>) {
         val destDir = File(filesDir, "games").apply { mkdirs() }
+        val inbox = File(filesDir, "inbox").apply { mkdirs() }
         val dlg = ProgressDialog(this).apply {
             setMessage(getString(R.string.importing))
             setCancelable(false)
@@ -169,29 +170,60 @@ class MainActivity : Activity() {
         Thread {
             var ok = 0
             var failed = 0
+            val archives = mutableListOf<File>()
             for (uri in uris) {
                 try {
                     val name = queryName(uri) ?: "game_${System.currentTimeMillis()}.bin"
                     val safe = File(name).name // strip any path parts
+                    val isArchive = ArchiveExtractor.isArchiveExt(
+                        safe.substringAfterLast('.', "")
+                    )
+                    val targetDir = if (isArchive) inbox else destDir
                     contentResolver.openInputStream(uri)?.use { ins ->
-                        File(destDir, safe).outputStream().use { outs -> ins.copyTo(outs) }
+                        File(targetDir, safe).outputStream().use { outs -> ins.copyTo(outs) }
                     }
+                    if (isArchive) archives.add(File(targetDir, safe))
                     ok++
                 } catch (e: Exception) {
                     failed++
                 }
             }
+            val copyFailed = failed
             runOnUiThread {
                 dlg.dismiss()
-                rescan()
-                Toast.makeText(
-                    this,
-                    if (failed == 0) getString(R.string.import_done)
-                    else getString(R.string.import_failed),
-                    Toast.LENGTH_LONG
-                ).show()
+                if (archives.isNotEmpty()) {
+                    // Archives extract through the same flow as the explorer;
+                    // the inbox copy is deleted after a successful extraction.
+                    extractImportedArchives(archives, 0, copyFailed)
+                } else {
+                    rescan()
+                    Toast.makeText(
+                        this,
+                        if (copyFailed == 0) getString(R.string.import_done)
+                        else getString(R.string.import_failed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }.start()
+    }
+
+    /** Extracts picked archives one at a time, then refreshes the library. */
+    private fun extractImportedArchives(
+        archives: List<File>, index: Int, copyFailed: Int
+    ) {
+        if (index >= archives.size) {
+            rescan()
+            if (copyFailed > 0) {
+                Toast.makeText(this, getString(R.string.import_failed), Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        ExtractionUi.extractArchiveToLibrary(
+            this, archives[index], deleteSourceAfterSuccess = true
+        ) {
+            extractImportedArchives(archives, index + 1, copyFailed)
+        }
     }
 
     private fun queryName(uri: Uri): String? {

@@ -4,7 +4,7 @@
 
 1. On your Fire TV, install a file manager that can sideload APKs (e.g. **Downloader**
    by AFTVnews) and allow "Install unknown apps" for it when asked.
-2. Copy `aeonps1-v1.1.0.apk` to a USB stick (or send it to the TV with
+2. Copy `aeonps1-v1.2.0.apk` to a USB stick (or send it to the TV with
    "Send Files to TV" / adb).
 3. Open the APK on the TV and install. It appears as **AeonPS1** in your apps.
 
@@ -25,6 +25,23 @@ Games stay on your USB stick or internal storage — nothing is copied.
    keep the `.cue` next to its `.bin` so CD audio works) and press
    **Use this folder** — its games appear in the library every time you open
    the app. Or open one game file and pick **Play now** to play it directly.
+   The folder button is a toggle: press it again to take the folder out of
+   the library. You can watch as many folders as you like at once.
+
+### Games inside a RAR?
+
+Tap the `.rar` (or `.zip`) in Browse Files and pick **Extract &amp; add games**:
+it unpacks to the app's `Extracted/<name>/` folder and adds that folder to
+your library by itself — the games show up right away.
+
+- Multi-part `.rar` sets (`.part1.rar`, `.part2.rar`, …) work when all the
+  parts sit in the same folder — just tap the first part.
+- Modern RAR5 archives are supported; **password-protected archives are not**
+  (the app will tell you plainly).
+- Extraction goes to internal storage, so you need that much free space.
+  The app checks first and warns you if there isn't enough.
+- Picking a `.rar`/`.zip` through the old **Add Games** picker works too —
+  it extracts the same way (the temporary copy is deleted afterwards).
 
 (The old **Add Games** picker still works too: it copies game files into the
 app's private storage, no permissions needed.)

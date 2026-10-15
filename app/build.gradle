@@ -18,8 +18,8 @@ android {
         applicationId = "com.aeonps1.tv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
 
         externalNativeBuild {
             ndkBuild {
@@ -66,4 +66,8 @@ android {
 
 dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    // Pure-Java RAR reader (PS1 games packed as .rar, incl. modern RAR5).
+    // 7.5.x was tried first but can't open RAR5; 8.1.2 verified on-host.
+    // ZIP uses java.util.zip (no dependency).
+    implementation("com.github.junrar:junrar:8.1.2")
 }

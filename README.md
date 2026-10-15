@@ -22,10 +22,17 @@ and, optionally, your own BIOS file.
   the whole file system. Browse with the D-pad; OK on a game file offers
   **Play now** (runs the game right where it sits — nothing is copied) or
   **Add to library**; press **Use this folder** to add a whole folder to the
-  library. On Fire OS 8+ the explorer asks once for "All files access" so it
-  can read shared storage and USB sticks.
+  library (the button toggles: press again to remove the folder — as many
+  folders as you like can be watched at once). On Fire OS 8+ the explorer asks
+  once for "All files access" so it can read shared storage and USB sticks.
+- **Archive extraction**: tap a `.rar` or `.zip` in the explorer and pick
+  **Extract & add games**. It unpacks to the app's `Extracted/<name>/` folder
+  (junrar, incl. modern RAR5 and multi-part `.part1.rar` sets) and adds that
+  folder to the library automatically. Progress with a real Cancel button,
+  free-space check first, password-protected archives are refused plainly.
 - **Add Games**: the old system file picker still works and copies your game
-  files into the app's private storage (works without any storage permission).
+  files into the app's private storage (works without any storage permission);
+  picking a `.rar`/`.zip` there runs the same extraction flow.
 - **Emulation**: PCSX-ReARMed core loaded at runtime; video blitted to a
   SurfaceView (nearest-neighbor scale, 4:3 or Stretch), audio through AudioTrack
   at 44100 Hz stereo.
