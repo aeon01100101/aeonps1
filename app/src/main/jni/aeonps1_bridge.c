@@ -116,6 +116,61 @@ static float g_fps = 0.0f;
 static bool g_inited = false;
 static bool g_game_loaded = false;
 
+#ifdef AEON_BENCH
+/* Bench instrumentation: records every video_refresh geometry attempt
+ * (including oversize ones the frame buffer drops), dup frames, and audio
+ * batches. Additive only; the Android build never compiles this. */
+#define BENCH_GEO_HIST 64
+static struct { unsigned w, h; int fmt; unsigned long frame_at; }
+    g_bench_geo[BENCH_GEO_HIST];
+static int g_bench_geo_n = 0;
+static unsigned long g_bench_video_frames = 0;
+static unsigned long g_bench_dup_frames = 0;
+static unsigned long g_bench_audio_batches = 0;
+static unsigned long g_bench_audio_frames = 0;
+
+static void bench_geo_note(unsigned w, unsigned h) {
+    int last = g_bench_geo_n - 1;
+    if (last >= 0 && g_bench_geo[last].w == w && g_bench_geo[last].h == h &&
+        g_bench_geo[last].fmt == g_pixfmt)
+        return;
+    if (g_bench_geo_n < BENCH_GEO_HIST) {
+        g_bench_geo[g_bench_geo_n].w = w;
+        g_bench_geo[g_bench_geo_n].h = h;
+        g_bench_geo[g_bench_geo_n].fmt = g_pixfmt;
+        g_bench_geo[g_bench_geo_n].frame_at = g_frame_count;
+        g_bench_geo_n++;
+    }
+}
+
+void aeon_bench_get_frame(const uint32_t **px, int *w, int *h, int *fmt) {
+    if (px) *px = g_frame_ready ? g_frame : NULL;
+    if (w) *w = g_vw;
+    if (h) *h = g_vh;
+    if (fmt) *fmt = g_pixfmt;
+}
+
+int aeon_bench_geo_count(void) { return g_bench_geo_n; }
+
+int aeon_bench_geo_at(int i, unsigned *w, unsigned *h, int *fmt,
+                      unsigned long *frame_at) {
+    if (i < 0 || i >= g_bench_geo_n) return 0;
+    if (w) *w = g_bench_geo[i].w;
+    if (h) *h = g_bench_geo[i].h;
+    if (fmt) *fmt = g_bench_geo[i].fmt;
+    if (frame_at) *frame_at = g_bench_geo[i].frame_at;
+    return 1;
+}
+
+void aeon_bench_counters(unsigned long *video, unsigned long *dup,
+                         unsigned long *abatches, unsigned long *aframes) {
+    if (video) *video = g_bench_video_frames;
+    if (dup) *dup = g_bench_dup_frames;
+    if (abatches) *abatches = g_bench_audio_batches;
+    if (aframes) *aframes = g_bench_audio_frames;
+}
+#endif /* AEON_BENCH */
+
 /* ------------------------------------------------------------------ */
 /* Diagnostic ring log + core message                                   */
 /* ------------------------------------------------------------------ */
@@ -346,7 +401,11 @@ static bool env_callback(unsigned cmd, void *data) {
         enum retro_pixel_format fmt = *(const enum retro_pixel_format *)data;
         if (fmt == RETRO_PIXEL_FORMAT_XRGB8888 || fmt == RETRO_PIXEL_FORMAT_RGB565) {
             g_pixfmt = fmt;
-            LOGI("core pixel format: %s", fmt == RETRO_PIXEL_FORMAT_XRGB8888 ? "XRGB8888" : "RGB565");
+            const char *fname = fmt == RETRO_PIXEL_FORMAT_XRGB8888 ? "XRGB8888" : "RGB565";
+            LOGI("core pixel format: %s", fname);
+            char pl[64];
+            snprintf(pl, sizeof(pl), "pixel format negotiated: %s", fname);
+            log_ring_add(pl);
             return true;
         }
         return false;
@@ -480,6 +539,40 @@ static bool env_callback(unsigned cmd, void *data) {
         }
         return true;
     }
+    case RETRO_ENVIRONMENT_SET_GEOMETRY: {
+        const struct retro_game_geometry *geo =
+            (const struct retro_game_geometry *)data;
+        if (geo) {
+            char gb[112];
+            snprintf(gb, sizeof(gb),
+                     "core set geometry: %ux%u (max %ux%u, aspect %.2f)",
+                     geo->base_width, geo->base_height,
+                     geo->max_width, geo->max_height, geo->aspect_ratio);
+            LOGI("%s", gb);
+            log_ring_add(gb);
+        }
+        return true;
+    }
+    case RETRO_ENVIRONMENT_GET_AUDIO_VIDEO_ENABLE: {
+        /* The core asks every frame whether it may emit audio/video.
+         * We always want both (no runahead/fast-forward skipping). */
+        *(int *)data = RETRO_AV_ENABLE_VIDEO | RETRO_AV_ENABLE_AUDIO;
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY: {
+        /* Core wants to show/hide an option in the frontend's menu.
+         * We have no options menu; acknowledge and ignore. */
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: {
+        /* We support booting with no content (BIOS shell). */
+        return true;
+    }
+    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION: {
+        /* We provide the v1 extended disk control interface. */
+        *(unsigned *)data = 1;
+        return true;
+    }
     case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
         return false;
     default: {
@@ -493,8 +586,19 @@ static bool env_callback(unsigned cmd, void *data) {
 }
 
 static void video_refresh_cb(const void *data, unsigned width, unsigned height, size_t pitch) {
+#ifdef AEON_BENCH
+    g_bench_video_frames++;
+    if (!data) g_bench_dup_frames++;
+    bench_geo_note(width, height);
+#endif
     if (width == 0 || height == 0 || width > MAX_VW || height > MAX_VH)
         return; /* dup frame or bogus: keep last frame */
+    if ((int)width != g_vw || (int)height != g_vh) {
+        char geo[96];
+        snprintf(geo, sizeof(geo), "video geometry now %ux%u (%s)", width, height,
+                 g_pixfmt == RETRO_PIXEL_FORMAT_XRGB8888 ? "XRGB8888" : "RGB565");
+        log_ring_add(geo);
+    }
     g_vw = (int)width;
     g_vh = (int)height;
     if (data) {
@@ -539,6 +643,10 @@ static void audio_sample_cb(int16_t left, int16_t right) {
 }
 
 static size_t audio_sample_batch_cb(const int16_t *data, size_t frames) {
+#ifdef AEON_BENCH
+    g_bench_audio_batches++;
+    g_bench_audio_frames += frames;
+#endif
     pthread_mutex_lock(&g_audio_mutex);
     size_t shorts = frames * 2;
     for (size_t i = 0; i < shorts; i++) {
@@ -717,8 +825,9 @@ static void basename_of(const char *path, char *out, size_t n) {
 JNIEXPORT jboolean JNICALL
 Java_com_aeonps1_tv_EmulatorBridge_nativeLoadGame(JNIEnv *env, jobject thiz, jstring path) {
     if (!g_inited || g_game_loaded) return JNI_FALSE;
-    const char *p = (*env)->GetStringUTFChars(env, path, NULL);
-    basename_of(p, g_game_basename, sizeof(g_game_basename));
+    const char *p = path ? (*env)->GetStringUTFChars(env, path, NULL) : NULL;
+    if (p) basename_of(p, g_game_basename, sizeof(g_game_basename));
+    else g_game_basename[0] = '\0';
 
     struct retro_system_info si;
     core_retro_get_system_info(&si);
@@ -729,7 +838,7 @@ Java_com_aeonps1_tv_EmulatorBridge_nativeLoadGame(JNIEnv *env, jobject thiz, jst
     memset(&gi, 0, sizeof(gi));
     gi.path = p;
     bool ok = core_retro_load_game(&gi);
-    (*env)->ReleaseStringUTFChars(env, path, p);
+    if (p) (*env)->ReleaseStringUTFChars(env, path, p);
     if (!ok) {
         LOGE("retro_load_game failed");
         return JNI_FALSE;
@@ -922,7 +1031,8 @@ Java_com_aeonps1_tv_EmulatorBridge_nativeGetCoreMessage(JNIEnv *env, jobject thi
 }
 
 JNIEXPORT void JNICALL
-Java_com_aeonps1_tv_EmulatorBridge_nativeShutdown(JNIEnv *env, jobject thiz) {    if (g_game_loaded) {
+Java_com_aeonps1_tv_EmulatorBridge_nativeShutdown(JNIEnv *env, jobject thiz) {
+    if (g_game_loaded) {
         save_ram_store();
         core_retro_unload_game();
         g_game_loaded = false;
