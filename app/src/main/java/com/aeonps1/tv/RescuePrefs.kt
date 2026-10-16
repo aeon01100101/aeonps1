@@ -10,6 +10,21 @@ import java.util.Locale
 object RescuePrefs {
     const val KEY_IN_PROGRESS = "launch_in_progress"
     const val KEY_ATTEMPTS = "launch_attempts"
+
+    /** Set when the crash-streak rescue has auto-opened once for the current
+     *  bad streak. A fully successful MainActivity session clears it, which
+     *  re-arms the gate. While set, the gate never forces RescueActivity a
+     *  second time for the same streak — the library opens (in safe mode)
+     *  instead, so the gate can never be the reason the app won't open
+     *  twice in a row. */
+    const val KEY_RESCUE_AUTO_SHOWN = "rescue_auto_shown"
+
+    /** Set to the game path while the emulator is starting/running; cleared
+     *  after a few seconds of successful play or on a clean quit/load
+     *  failure. If still set at the next EmulatorActivity launch, the last
+     *  session died inside emulation (native crash) — show a notice instead
+     *  of blindly reloading the same killer file. */
+    const val KEY_EMU_IN_PROGRESS = "emu_in_progress"
     const val KEY_SPACE_WARNED = "space_warned"
     const val KEY_LIBRARY_FOLDERS = "library_folders"
     const val KEY_ADDED_FILES = "added_files"

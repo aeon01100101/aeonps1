@@ -53,6 +53,10 @@ class MainActivity : Activity() {
     private val scanExecutor = Executors.newSingleThreadExecutor()
     private var scanToken = 0
     private var firstScanDone = false
+    /** Set by the rescue gate when a crash streak continues after rescue was
+     *  already auto-shown once: open the library without scanning external
+     *  folders rather than forcing rescue again. */
+    private var safeMode = false
 
     private fun prefs() = getSharedPreferences("aeonps1", MODE_PRIVATE)
 
@@ -62,6 +66,15 @@ class MainActivity : Activity() {
             // The rescue gate runs BEFORE anything else: on a critically full
             // disk even the prefs flag writes below may not survive, so free
             // space is checked directly here.
+            // The gate can never be the reason the app won't open twice in a
+            // row: the crash-streak rescue auto-opens at most ONCE per bad
+            // streak (KEY_RESCUE_AUTO_SHOWN). If the streak continues after
+            // the user has already seen rescue, the library opens in safe
+            // mode (no external folder scan) instead of forcing rescue
+            // again. One fully successful session clears the flag and
+            // re-arms the gate. The low-disk trigger always routes to
+            // RescueActivity (a working screen with cleanup buttons), never
+            // to a dead end.
             val fromRescue = intent.getBooleanExtra(EXTRA_FROM_RESCUE, false)
             if (!fromRescue) {
                 val free = try {
@@ -75,13 +88,30 @@ class MainActivity : Activity() {
                 val attempts = SafePrefs.getInt(
                     prefs(), RescuePrefs.KEY_ATTEMPTS, 0
                 )
-                if (RescuePrefs.shouldEnterRescue(
-                        inProgress, attempts, free,
-                        RescuePrefs.LOW_SPACE_RESCUE_BYTES
-                    )
-                ) {
+                val lowDisk = free < RescuePrefs.LOW_SPACE_RESCUE_BYTES
+                val crashStreak =
+                    inProgress && attempts >= RescuePrefs.RESCUE_ATTEMPTS
+                val autoShown = SafePrefs.getBoolean(
+                    prefs(), RescuePrefs.KEY_RESCUE_AUTO_SHOWN, false
+                )
+                if (lowDisk) {
                     openRescue()
                     return
+                }
+                if (crashStreak && !autoShown) {
+                    try {
+                        prefs().edit()
+                            .putBoolean(RescuePrefs.KEY_RESCUE_AUTO_SHOWN, true)
+                            .apply()
+                    } catch (e: Exception) { }
+                    openRescue()
+                    return
+                }
+                if (crashStreak && autoShown) {
+                    // Rescue already auto-opened for this streak: open the
+                    // library in safe mode rather than looping the user back
+                    // into rescue. Function, never a lockout.
+                    safeMode = true
                 }
                 markLaunchStarted(attempts)
             }
@@ -151,12 +181,15 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Called once the first background scan has rendered: startup survived. */
+    /** Called once the first background scan has rendered: startup survived.
+     *  Also re-arms the crash-streak rescue gate (clears the "auto-shown"
+     *  flag) — one fully successful session ends the bad streak. */
     private fun markLaunchSucceeded() {
         try {
             prefs().edit()
                 .putBoolean(RescuePrefs.KEY_IN_PROGRESS, false)
                 .putInt(RescuePrefs.KEY_ATTEMPTS, 0)
+                .putBoolean(RescuePrefs.KEY_RESCUE_AUTO_SHOWN, false)
                 .apply()
         } catch (e: Exception) {
             Log.w("AeonPS1", "could not clear launch flags", e)
@@ -196,7 +229,8 @@ class MainActivity : Activity() {
      *  skipped — it can never take the app down. */
     private fun rescanAsync() {
         val token = ++scanToken
-        val skipExternal = intent.getBooleanExtra(EXTRA_SKIP_EXTERNAL_SCAN, false)
+        val skipExternal =
+            intent.getBooleanExtra(EXTRA_SKIP_EXTERNAL_SCAN, false) || safeMode
 
         runOnUiThread {
             emptyView.text = getString(R.string.loading_games)

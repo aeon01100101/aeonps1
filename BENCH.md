@@ -119,3 +119,94 @@ The Android release build compiles warning-clean with these changes
 - `aapt`: package `com.aeonps1.tv` vc6/1.3.1, sdkVersion 24, targetSdk 35.
 - `unzip -l`: both cores × both ABIs, lib-prefixed names.
 - No BIOS, no games, no OpenBIOS in the APK (secrets audit: signing stays outside the repo).
+
+---
+
+# AeonPS1 Bench Report — v1.3.2 (.bin crash + lockout fix)
+
+## Test disc images (all content homebrew/own-authored, legal)
+
+Authored in Python (`bench/src/make_exe.py`, `bench/src/make_disc.py`):
+hand-built PS-X EXE (hello.exe, 2504 B) inside a proper Mode 2 Form 1
+(2352-byte sector) image: 12 B sync, 3 B MSF-BCD, mode 0x02, XA subheaders,
+2048 B data, 4 B EDC (ECMA-130 CRC), 276 B ECC, ISO9660 PVD@16 (vol id
+`AEONPS1`), SYSTEM.CNF (`BOOT = cdrom:\HELLO.EXE;1`), padded to 128 sectors
+(301,056 B). Test set in `bench/content/disc_test/`:
+
+- `game.bin` + `game.cue` — valid bootable MODE2/2352 image
+- `bare.bin` — same bytes, no cue
+- `bare_gen.cue` — generated single-track cue (same-dir, relative path)
+- `gencue/bare_abspath.cue` — generated cue in a *separate* dir with an
+  *absolute* FILE path (exactly what the app's v1.3.2 code writes)
+- `random.bin` — 10 MB random bytes
+- `trunc.bin` — valid image cut at 37% (111,390 B)
+- `bioslike.bin` — 524,288 random bytes (real-BIOS size)
+- `tiny.bin` — 4,096 random bytes
+- `game_m1.bin` + `.cue` — MODE1/2048 variant; `trunc_m1.bin`
+- `nocnf.bin` + `.cue` — valid MODE2 image, no SYSTEM.CNF
+- `missingexe.bin` + `.cue` — SYSTEM.CNF points to MISSING.EXE;1
+
+## .bin crash matrix (actual bridge, both cores, separate process per case)
+
+| case | PCSX-ReARMed | SwanStation |
+|---|---|---|
+| valid cue+bin (MODE2/2352) | **SEGFAULT in loader** (exit 139) | OK, no crash (shell) |
+| bare .bin (no cue) | LOAD-FAILED clean (exit 1; core guessed 2048 sectors, refused) | OK, no crash (shell) |
+| bare .bin via generated cue | (not run — app never generates for PCSX) | OK, no crash (shell) |
+| abs-path cue in separate dir | — | OK, no crash (shell) |
+| random 10 MB | LOAD-FAILED clean | OK, no crash (shell) |
+| trunc 37% (bare) | **SEGFAULT** (exit 139; core guessed 2352, parsed SYSTEM.CNF, crashed) | OK, no crash (shell) |
+| bioslike 512 KiB | LOAD-FAILED clean | OK, no crash (shell) |
+| tiny 4 KiB | LOAD-FAILED clean | OK, no crash (shell) |
+| MODE1/2048 valid/trunc | LOAD-FAILED clean | OK, no crash (shell) |
+| no SYSTEM.CNF | LOAD-FAILED clean | OK, no crash (shell) |
+| SYSTEM.CNF → missing EXE | LOAD-FAILED clean | OK, no crash (shell) |
+
+**Crash condition (refined):** PCSX-ReARMed segfaults when its HLE CD-boot
+chain successfully parses a MODE2/2352 image's ISO9660 + SYSTEM.CNF and
+proceeds to load/execute the disc program — with a cue OR a bare .bin (the
+core's sector-size autodetect guesses right on trunc.bin). The crash is
+inside the core binary; the frontend cannot fix it, only avoid feeding it
+known-bad input. SwanStation never crashed on any input (worst case: its
+built-in OpenBIOS shell).
+
+**Re-run after fix:** matrix re-run against the fixed bridge (atomic .srm,
+v1.3.2) — identical results, no regressions. .srm verified written via
+.tmp + rename (128 KiB card present, zero .tmp leftovers). The app-side
+validation (BIOS-sized/tiny/unknown-format refusal) lives in Kotlin and was
+not bench-run; the bench covers the core-side cases.
+
+## "Stays crashed" persistence audit (code-traced)
+
+- **CONFIRMED (mechanism):** native segfault kills the process instantly; on
+  relaunch from Recents, Android recreates the task's top activity —
+  EmulatorActivity — with the same crashing .bin intent → instant re-crash.
+  EmulatorActivity had no crash guard → crash loop → "stays crashed until
+  reinstall" (reinstall clears the task stack). Fix: `emu_in_progress`
+  sentinel (EmulatorActivity sets before the emu thread starts; clears on
+  clean quit / clean load failure / ~8 s of successful play; next launch
+  with it still set shows "AeonPS1 closed on this file before" + [Try again]
+  / [Back to library] — information, never a lockout).
+- **CONFIRMED (not the cause):** the rescue gate cannot be the lockout — its
+  flags clear after the first scan render, long before any game tap; the gate
+  only fires during MainActivity startup. Hardened anyway: crash-streak
+  rescue auto-opens at most once per streak (`rescue_auto_shown`); after the
+  user has seen it, the library opens in safe mode instead. Invariant: the
+  rescue gate can never be the reason the app won't open twice in a row.
+- **CONFIRMED (not a lockout, fixed anyway):** `.srm` writes were non-atomic
+  (`fopen "wb"` direct) — a SIGSEGV mid-write left a truncated card (the
+  load path already size-guards, so it was ignored, not fatal). Now
+  `.tmp` + `rename()`.
+- **PLAUSIBLE (self-healing):** prefs XML truncated by a mid-write SIGSEGV —
+  the platform starts empty on parse failure and SafePrefs guards every
+  read; already mitigated.
+
+## What remains unproven (honest gaps, v1.3.2)
+
+- The PCSX segfault was reproduced on Linux x86_64 only; whether it fires on
+  ARM is unknown. The fixes (validation + sentinel) don't depend on it.
+- SwanStation's built-in OpenBIOS degraded every test image to its shell —
+  it never booted the homebrew disc (shell cube, not the hello.exe screen);
+  real game + real BIOS on the TV is the true test.
+- Retail-game boot, real Sony BIOS, TV performance: still only settleable on
+  Isaiah's Fire TV.

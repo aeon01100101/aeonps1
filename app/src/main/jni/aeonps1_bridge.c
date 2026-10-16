@@ -357,10 +357,24 @@ static void save_ram_store(void) {
     if (!sz || !mem) return;
     char path[1152];
     srm_path(path, sizeof(path));
-    FILE *f = fopen(path, "wb");
-    if (!f) { LOGW("could not write .srm"); return; }
-    if (fwrite(mem, 1, sz, f) != sz) LOGW("short .srm write");
+    // v1.3.2: atomic write — a native crash mid-write must never leave a
+    // truncated card behind. Write to .tmp, then rename over the target
+    // (atomic on the same filesystem). The load path already size-guards.
+    char tmp[1180];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) { LOGW("could not write .srm.tmp"); return; }
+    bool ok = (fwrite(mem, 1, sz, f) == sz);
     fclose(f);
+    if (ok) {
+        if (rename(tmp, path) != 0) {
+            LOGW("could not rename .srm.tmp into place");
+            remove(tmp);
+        }
+    } else {
+        LOGW("short .srm write, discarding .tmp");
+        remove(tmp);
+    }
 }
 
 /* ------------------------------------------------------------------ */

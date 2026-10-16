@@ -53,6 +53,9 @@ class EmulatorActivity : Activity() {
     @Volatile private var buttonMask = 0
 
     private lateinit var gamePath: String
+    /** The path actually handed to the core: usually gamePath, but a
+     *  generated single-track cue for a bare .bin (v1.3.2). */
+    private lateinit var loadPath: String
     private lateinit var savesDir: File
     private lateinit var fpsView: TextView
 
@@ -90,11 +93,256 @@ class EmulatorActivity : Activity() {
         })
 
         // The DuckStation-family engine has no built-in BIOS replacement:
-        // without a real BIOS file it cannot start any game.
+        // v1.3.2: crash sentinel first (never blindly reload a killer file),
+        // then pre-load validation (refuse known-bad input with a plain
+        // dialog), then the BIOS check / emulation start.
+        if (!checkCrashSentinel()) {
+            validateAndBegin()
+        }
+    }
+
+    /**
+     * v1.3.2 crash sentinel. A native segfault kills the process instantly,
+     * so nothing could clear KEY_EMU_IN_PROGRESS — if it is still set, the
+     * last session died inside emulation. Relaunching (e.g. from Recents,
+     * which recreates this activity with the same game) must not blindly
+     * reload the same killer file. Returns true when a dialog took over
+     * and the caller must stop; false to proceed.
+     */
+    private fun checkCrashSentinel(): Boolean {
+        val crashedPath =
+            SafePrefs.getString(prefs(), RescuePrefs.KEY_EMU_IN_PROGRESS, "")
+        if (crashedPath.isEmpty()) return false
+        if (crashedPath == gamePath) {
+            showCrashedBeforeDialog()
+            return true
+        }
+        // Died on a different file last time: one-time notice, then clear.
+        try {
+            Toast.makeText(
+                this,
+                getString(R.string.emu_crashed_notice, File(crashedPath).name),
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) { }
+        SafePrefs.remove(prefs(), RescuePrefs.KEY_EMU_IN_PROGRESS)
+        return false
+    }
+
+    private fun showCrashedBeforeDialog() {
+        runOnUiThread {
+            try {
+                AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.crashed_before_title))
+                    .setMessage(
+                        getString(R.string.crashed_before_body, File(gamePath).name)
+                    )
+                    .setPositiveButton(getString(R.string.crashed_before_retry)) { _, _ ->
+                        // The sentinel stays set: if it crashes again, this
+                        // dialog shows again. Never a lockout — the choice
+                        // is always the user's.
+                        validateAndBegin()
+                    }
+                    .setNegativeButton(getString(R.string.crashed_before_back)) { _, _ ->
+                        finish()
+                    }
+                    .setCancelable(false)
+                    .show()
+            } catch (e: Exception) {
+                finish()
+            }
+        }
+    }
+
+    /**
+     * Runs pre-load validation; on success begins emulation. Returns false
+     * when a dialog took over (validation failure or BIOS notice) and the
+     * caller must stop.
+     */
+    private fun validateAndBegin(): Boolean {
+        val path = validatedLoadPath() ?: return false
+        loadPath = path
+        beginEmulation()
+        return true
+    }
+
+    private fun beginEmulation() {
         if (effectiveEngine() != ENGINE_PCSX && !hasDuckStationBios(this)) {
             askAboutBios()
         } else {
             startEmulation()
+        }
+    }
+
+    /**
+     * v1.3.2 pre-load validation. Cheap checks on the file before the core
+     * ever sees it: bench-proven crash inputs (BIOS-sized .bin, unknown
+     * bare-.bin format, cue pointing at missing files) are refused with a
+     * plain dialog. Returns the path to hand to the core, or null after
+     * showing a dialog. Never crashes, never writes state (a generated cue
+     * goes to the cache dir and is not state).
+     */
+    private fun validatedLoadPath(): String? {
+        val file = try {
+            File(gamePath)
+        } catch (e: Exception) {
+            null
+        }
+        if (file == null || !file.isFile || !file.canRead()) {
+            showBadFile(getString(R.string.badfile_missing))
+            return null
+        }
+        val ext = file.extension.lowercase(java.util.Locale.US)
+        if (ext == "cue") {
+            // The cue sheet itself is tiny; validate what it points to.
+            val missing = cueMissingRef(file)
+            if (missing != null) {
+                showBadFile(getString(R.string.badfile_cue_broken, missing))
+                return null
+            }
+            return gamePath
+        }
+        val size = try {
+            file.length()
+        } catch (e: Exception) {
+            -1L
+        }
+        if (size < 32 * 1024L) {
+            val sizeText = try {
+                RescuePrefs.humanSize(size.coerceAtLeast(0))
+            } catch (e: Exception) {
+                "0 B"
+            }
+            showBadFile(getString(R.string.badfile_too_small, sizeText))
+            return null
+        }
+        if (ext == "bin" && size == 524288L) {
+            // Exactly the size of a real PS1 BIOS: it is a BIOS, not a game.
+            // Handing it to the core as a disc is a bench-proven crash on
+            // the PCSX path; refuse with directions instead.
+            showBiosNotGame()
+            return null
+        }
+        if (ext == "bin" && !hasSiblingCue(file)) {
+            val mode = when {
+                size % 2352L == 0L -> "MODE2/2352"
+                size % 2048L == 0L -> "MODE1/2048"
+                else -> null
+            }
+            if (mode == null) {
+                showBadFile(getString(R.string.badfile_unknown_format))
+                return null
+            }
+            if (effectiveEngine() == ENGINE_PCSX) {
+                // Bench-proven: PCSX refuses a bare .bin cleanly, but
+                // segfaults on a cue-backed MODE2 image it tries to boot.
+                // Never generate a cue for PCSX — hand it the bare file.
+                return gamePath
+            }
+            // What mature frontends do for bare bins: a temporary
+            // single-track cue in the cache dir, so the core takes its
+            // well-trodden cue path. Falls back to the bare file if the
+            // cache write fails.
+            return generatedCueFor(file, mode) ?: gamePath
+        }
+        return gamePath
+    }
+
+    private fun hasSiblingCue(bin: File): Boolean {
+        return try {
+            val base = bin.nameWithoutExtension
+            bin.parentFile?.listFiles()?.any { f ->
+                f.isFile &&
+                    f.nameWithoutExtension.equals(base, ignoreCase = true) &&
+                    f.extension.equals("cue", ignoreCase = true)
+            } ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** A temporary single-track cue for a bare .bin, in the cache dir. */
+    private fun generatedCueFor(bin: File, mode: String): String? {
+        return try {
+            val dir = File(cacheDir, "gencue").apply { mkdirs() }
+            val tag = (bin.absolutePath + "|" + bin.length())
+                .hashCode().toUInt().toString(16)
+            val cue = File(dir, bin.nameWithoutExtension + "_" + tag + ".cue")
+            cue.writeText(
+                "FILE \"" + bin.absolutePath + "\" BINARY\n" +
+                    "  TRACK 01 " + mode + "\n" +
+                    "    INDEX 01 00:00:00\n"
+            )
+            cue.absolutePath
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Returns the first missing/empty file a .cue references, else null. */
+    private fun cueMissingRef(cue: File): String? {
+        return try {
+            val dir = cue.parentFile ?: return null
+            for (raw in cue.readLines()) {
+                val line = raw.trim()
+                if (!line.startsWith("FILE", ignoreCase = true)) continue
+                // FILE "name.bin" BINARY   or   FILE name.bin BINARY
+                val rest = line.substring(4).trim()
+                val name = if (rest.startsWith("\"")) {
+                    rest.substring(1).substringBefore("\"")
+                } else {
+                    rest.substringBefore(" ").trim()
+                }
+                if (name.isEmpty()) continue
+                val ref = File(name)
+                val target = if (ref.isAbsolute) ref else File(dir, name)
+                if (!target.isFile || target.length() == 0L) return name
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun showBadFile(message: String) {
+        runOnUiThread {
+            try {
+                AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.badfile_title))
+                    .setMessage(message)
+                    .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+                    .setCancelable(false)
+                    .show()
+            } catch (e: Exception) {
+                finish()
+            }
+        }
+    }
+
+    private fun showBiosNotGame() {
+        runOnUiThread {
+            try {
+                AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.badfile_bios_title))
+                    .setMessage(getString(R.string.badfile_bios_body))
+                    .setPositiveButton(getString(R.string.open_bios_screen)) { _, _ ->
+                        startActivity(
+                            android.content.Intent(this, BiosActivity::class.java)
+                        )
+                        finish()
+                    }
+                    .setNeutralButton(getString(R.string.badfile_bios_load_anyway)) { _, _ ->
+                        // The user's call: they say it is a game. The crash
+                        // sentinel still guards a crash loop.
+                        loadPath = gamePath
+                        beginEmulation()
+                    }
+                    .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+                    .setCancelable(false)
+                    .show()
+            } catch (e: Exception) {
+                finish()
+            }
         }
     }
 
@@ -128,6 +376,15 @@ class EmulatorActivity : Activity() {
 
     private fun startEmulation() {
         running = true
+        // v1.3.2 crash sentinel: set BEFORE any native call. A native
+        // segfault kills the process instantly, so nothing after this can
+        // clear it on a crash — the next launch sees it and warns instead
+        // of blindly reloading the same killer file.
+        try {
+            prefs().edit()
+                .putString(RescuePrefs.KEY_EMU_IN_PROGRESS, gamePath)
+                .apply()
+        } catch (e: Exception) { }
         emuThread = Thread({
             val corePath = applicationInfo.nativeLibraryDir +
                 "/" + effectiveCoreFile()
@@ -136,9 +393,17 @@ class EmulatorActivity : Activity() {
                 fail(getString(R.string.load_step_core)); return@Thread
             }
             EmulatorBridge.nativeSetScreenMode(prefs().getInt("screen_mode", 0))
-            if (!EmulatorBridge.nativeLoadGame(gamePath)) {
+            if (!EmulatorBridge.nativeLoadGame(loadPath)) {
                 fail(getString(R.string.load_step_game)); return@Thread
             }
+            // The game loaded and the core is alive: once it has run a few
+            // seconds, this session is proven — clear the sentinel.
+            Thread {
+                try {
+                    Thread.sleep(8000)
+                } catch (e: InterruptedException) { }
+                if (running) SafePrefs.remove(prefs(), RescuePrefs.KEY_EMU_IN_PROGRESS)
+            }.apply { isDaemon = true; start() }
             val targetFps = EmulatorBridge.nativeGetTargetFps().coerceIn(1f, 120f)
             val frameNs = (1_000_000_000L / targetFps).toLong()
             var uiTick = 0L
@@ -197,6 +462,9 @@ class EmulatorActivity : Activity() {
 
     private fun fail(step: String) {
         running = false
+        // A clean load failure is not a crash: clear the sentinel so the
+        // next launch doesn't warn about a file that merely refused.
+        SafePrefs.remove(prefs(), RescuePrefs.KEY_EMU_IN_PROGRESS)
         // Stay on screen with the real details instead of a 2-second toast:
         // the next refusal diagnoses itself.
         val file = try {
@@ -390,6 +658,8 @@ class EmulatorActivity : Activity() {
     private fun quit() {
         running = false
         menuOpen = false
+        // Clean quit: this session did not crash.
+        SafePrefs.remove(prefs(), RescuePrefs.KEY_EMU_IN_PROGRESS)
         Thread {
             emuThread?.join(5000)
             audioThread?.join(5000)
